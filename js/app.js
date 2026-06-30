@@ -1284,13 +1284,10 @@ function queueRemoteSave() {
 }
 
 async function uploadOrderScreenshot(file) {
-  // v12 Firestore Only：Spark 免費方案不啟用 Firebase Storage。
-  // 目前圖片只做本機預覽，不上傳雲端；OCR/圖片留到之後需要時再接 Drive 或升級 Storage。
+  // v13 Firestore Clean：Spark 免費方案不使用 Firebase Storage。
+  // 圖片僅本機預覽，不上傳雲端。
   if (!file) return null;
-  return {
-    path: "",
-    url: ""
-  };
+  return { path: "", url: "" };
 }
 
 function bindScreenshotPreview() {
@@ -1309,7 +1306,7 @@ function bindScreenshotPreview() {
     const localUrl = URL.createObjectURL(file);
     preview.innerHTML = `已選擇：${file.name}<img src="${localUrl}" alt="叫貨截圖預覽" />`;
 
-    preview.innerHTML += `<p>目前為免費版：圖片僅預覽，不上傳雲端。</p>`;
+    preview.innerHTML += `<p>目前免費版：圖片僅本機預覽，不上傳雲端。</p>`;
   });
 }
 
@@ -1445,21 +1442,23 @@ window.addEventListener("gb-role-ready", () => {
 });
 
 
-/* v11：確保 Firebase 同步函式可被 Console 測試，也避免登入事件早於 app.js 載入造成同步未啟動 */
-(function exposeFirebaseSyncHelpers(){
-  if (typeof startRemoteSync === "function") window.startRemoteSync = startRemoteSync;
-  if (typeof queueRemoteSave === "function") window.queueRemoteSave = queueRemoteSave;
-  if (typeof bindScreenshotPreview === "function") window.bindScreenshotPreview = bindScreenshotPreview;
-
-  window.saveDataToFirebase = function(){
-    if (typeof queueRemoteSave === "function") {
-      queueRemoteSave();
-      return "queued";
-    }
-    return "queueRemoteSave not found";
-  };
+/* v13：同步啟動保險與 Console 測試用全域函式 */
+(function exposeAndBootFirestoreSync(){
+  function expose(){
+    if (typeof startRemoteSync === "function") window.startRemoteSync = startRemoteSync;
+    if (typeof queueRemoteSave === "function") window.queueRemoteSave = queueRemoteSave;
+    if (typeof bindScreenshotPreview === "function") window.bindScreenshotPreview = bindScreenshotPreview;
+    window.saveDataToFirebase = function(){
+      if (typeof queueRemoteSave === "function") {
+        queueRemoteSave();
+        return "queued";
+      }
+      return "queueRemoteSave not found";
+    };
+  }
 
   function bootSyncIfReady(){
+    expose();
     if (window.GB_AUTH && window.GB_AUTH.ready && window.GB_FIREBASE && window.GB_FIREBASE.ready) {
       try {
         if (typeof initRole === "function") initRole();
@@ -1467,13 +1466,15 @@ window.addEventListener("gb-role-ready", () => {
         if (typeof bindScreenshotPreview === "function") bindScreenshotPreview();
         if (typeof startRemoteSync === "function") startRemoteSync();
       } catch (error) {
-        console.error("v11 sync boot failed:", error);
+        console.error("v13 Firestore sync boot failed:", error);
       }
     }
   }
 
+  expose();
   window.addEventListener("gb-role-ready", bootSyncIfReady);
   document.addEventListener("DOMContentLoaded", () => {
-    setTimeout(bootSyncIfReady, 600);
+    setTimeout(bootSyncIfReady, 300);
+    setTimeout(bootSyncIfReady, 1200);
   });
 })();
