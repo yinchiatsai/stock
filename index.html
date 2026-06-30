@@ -13,8 +13,6 @@
       <h2>金雀庫存管理系統</h2>
       <p id="authMessage">請使用公司授權的 Google 帳號登入。</p>
       <button id="googleLoginBtn" type="button">使用 Google 登入</button>
-      <button id="demoLoginBtn" class="secondary" type="button">暫時使用測試模式</button>
-      <p class="auth-note">正式上線後可移除測試模式，只保留 Google 登入。</p>
     </div>
   </div>
 
@@ -29,10 +27,10 @@
         <span>目前身份</span>
         <select id="roleSelect">
           <option value="staff">全員 / 美編</option>
+          <option value="emily">Emily</option>
           <option value="process">製程人員</option>
           <option value="boss">老闆</option>
           <option value="qing">青</option>
-           <option value="emily">Emily</option>
         </select>
         <button id="clearRoleBtn" class="secondary small" type="button">清除管理身份</button>
         <span id="userInfoText" class="user-info-text">未登入</span>
@@ -149,7 +147,7 @@
     <section id="admin" class="tab-panel hidden">
       <div id="adminLocked" class="card locked">
         <h3>🔐 管理後台</h3>
-        <p>這區只有老闆和青可以進入。原型密碼為 1234。</p>
+        <p>這區僅限授權管理身份進入。</p>
       </div>
 
       <div id="adminContent" class="hidden">
@@ -436,7 +434,7 @@
   <div id="passwordModal" class="modal-mask">
     <div class="modal-box">
       <h3>管理身份驗證</h3>
-      <p id="passwordModalText">請輸入管理密碼，驗證後會記住這台裝置。</p>
+      <p id="passwordModalText">請完成管理身份驗證。</p>
       <input id="passwordInput" type="password" placeholder="請輸入管理密碼" />
       <div class="modal-actions">
         <button class="secondary" id="cancelPasswordBtn">取消</button>
