@@ -56,6 +56,7 @@ function loadData() {
     parsed.items = Array.isArray(parsed.items) ? parsed.items : cloneDefaultData().items;
     parsed.orders = Array.isArray(parsed.orders) ? parsed.orders : cloneDefaultData().orders;
     parsed.mappings = Array.isArray(parsed.mappings) ? parsed.mappings : cloneDefaultData().mappings;
+    parsed.history = Array.isArray(parsed.history) ? parsed.history : [];
 
     parsed.items = parsed.items.map(item => ({
       stock: 0,
@@ -158,11 +159,14 @@ function switchTab(tab) {
 }
 
 function renderAll() {
+  ensureRoleOptions();
+  ensureStockHistoryUI();
   renderInventory();
   renderIncoming();
   renderReceiveTable();
   renderAdmin();
   setManualOrderDefaultDate();
+  renderStockHistory();
 }
 
 function renderInventory() {
@@ -201,7 +205,7 @@ function renderInventory() {
   }
 
   const role = document.getElementById("roleSelect").value;
-  const canEditSafety = role === "process" || role === "boss" || role === "qing";
+  const canEditSafety = role === "process" || role === "boss" || role === "qing" || role === "emily";
 
   const rows = filtered.map(item => {
     const incoming = getIncomingQty(item.id);
@@ -223,7 +227,7 @@ function renderInventory() {
             <span class="meta-tag category">${item.category}</span>
             <span class="meta-tag dept">${deptLabel}部管理</span>
             ${modeLabel ? `<span class="meta-tag mode">${modeLabel}</span>` : ""}
-            
+            <span class="meta-tag">${getLastUpdateText(item)}</span>
           </div>
         </div>
         <div class="num-cell stock-cell">${item.stock}</div>
@@ -311,8 +315,8 @@ function setManualOrderDefaultDate() {
 
 function renderAdmin() {
   const role = document.getElementById("roleSelect").value;
-  const canManage = role === "boss" || role === "qing";
-  const personName = role === "qing" ? "青" : "老闆";
+  const canManage = role === "boss" || role === "qing" || role === "emily";
+  const personName = role === "qing" ? "青" : (role === "emily" ? "Emily" : "老闆");
 
   document.getElementById("adminLocked").classList.toggle("hidden", canManage);
   document.getElementById("adminContent").classList.toggle("hidden", !canManage);
@@ -619,6 +623,7 @@ function selectStockItem(item) {
   document.getElementById("stockSearchInput").value = item.name;
   document.getElementById("stockItemSelect").value = item.id;
   document.getElementById("autocompleteList").innerHTML = "";
+  updateSelectedStockInfo(item);
 }
 
 function selectMappingItem(item) {
@@ -629,7 +634,7 @@ function selectMappingItem(item) {
 
 function updateSafety(itemId, value) {
   const role = document.getElementById("roleSelect").value;
-  if (!(role === "process" || role === "boss" || role === "qing")) {
+  if (!(role === "process" || role === "boss" || role === "qing" || role === "emily")) {
     showToast("無權限");
     return;
   }
@@ -665,7 +670,9 @@ function quickUpdateStock() {
     return;
   }
 
+  const oldStock = Number(item.stock) || 0;
   item.stock = qty;
+  addStockHistory(item, oldStock, qty, "盤點更新", document.getElementById("stockNoteInput").value.trim());
   lastUpdatedItemId = item.id;
   saveData();
 
@@ -681,6 +688,176 @@ function quickUpdateStock() {
   showToast(`${item.name} 已更新為 ${qty}，已移到第一列`);
 }
 
+
+function getCurrentUserLabel() {
+  if (window.GB_AUTH && window.GB_AUTH.user) {
+    const email = window.GB_AUTH.user.email || "";
+    if (email === "unrealmonde@gmail.com") return "Emily";
+    if (email === "hey2501@gmail.com") return "青";
+    if (email === "sun4041098@gmail.com") return "老闆";
+    return window.GB_AUTH.user.displayName || email || "未知使用者";
+  }
+
+  const role = document.getElementById("roleSelect")?.value || "staff";
+  const labels = { emily: "Emily", boss: "老闆", qing: "青", process: "製程人員", staff: "全員 / 美編" };
+  return labels[role] || role;
+}
+
+function getCurrentUserEmail() {
+  return window.GB_AUTH?.user?.email || "";
+}
+
+function formatDateTime(timestamp) {
+  if (!timestamp) return "-";
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "-";
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mi = String(date.getMinutes()).padStart(2, "0");
+  return `${yyyy}/${mm}/${dd} ${hh}:${mi}`;
+}
+
+function getLastUpdateText(item) {
+  if (!item || !item.lastUpdatedAt) return "最後更新：尚無紀錄";
+  const by = item.lastUpdatedBy || "未知";
+  const type = item.lastUpdateType ? `｜${item.lastUpdateType}` : "";
+  return `最後更新：${by}｜${formatDateTime(item.lastUpdatedAt)}${type}`;
+}
+
+
+function ensureStockHistoryStyles() {
+  if (document.getElementById("stockHistoryStyles")) return;
+  const style = document.createElement("style");
+  style.id = "stockHistoryStyles";
+  style.textContent = `
+    .stock-info-box{
+      background:#f8fbfb;
+      border:1px solid var(--line);
+      border-radius:14px;
+      padding:12px;
+      margin:12px 0;
+      line-height:1.7;
+    }
+    .stock-history-list{
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .history-row{
+      border:1px solid var(--line);
+      border-radius:14px;
+      padding:12px;
+      background:#fff;
+      line-height:1.6;
+    }
+    .history-meta{
+      color:var(--muted);
+      font-size:13px;
+      margin-top:4px;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function ensureStockHistoryUI() {
+  ensureStockHistoryStyles();
+  const updatePanel = document.getElementById("update");
+  if (!updatePanel) return;
+
+  const stockCard = document.getElementById("stockSearchInput")?.closest(".card");
+  if (stockCard && !document.getElementById("selectedStockInfo")) {
+    const info = document.createElement("div");
+    info.id = "selectedStockInfo";
+    info.className = "note stock-info-box";
+    info.textContent = "選擇品項後，這裡會顯示目前庫存與最後更新紀錄。";
+    const note = stockCard.querySelector(".note");
+    if (note) note.insertAdjacentElement("afterend", info);
+    else stockCard.appendChild(info);
+  }
+
+  if (!document.getElementById("stockHistoryList")) {
+    const section = document.createElement("div");
+    section.className = "section-title";
+    section.innerHTML = `<h2>最近庫存異動</h2><span class="badge info">最近 10 筆</span>`;
+
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `<div id="stockHistoryList" class="stock-history-list">尚無庫存異動紀錄</div>`;
+
+    updatePanel.appendChild(section);
+    updatePanel.appendChild(card);
+  }
+}
+
+function updateSelectedStockInfo(item) {
+  const info = document.getElementById("selectedStockInfo");
+  if (!info) return;
+
+  if (!item) {
+    info.textContent = "選擇品項後，這裡會顯示目前庫存與最後更新紀錄。";
+    return;
+  }
+
+  info.innerHTML = `
+    <strong>${item.name}</strong><br>
+    目前庫存：${item.stock}<br>
+    ${getLastUpdateText(item)}
+  `;
+}
+
+function addStockHistory(item, oldStock, newStock, type, note = "") {
+  if (!data.history) data.history = [];
+
+  const record = {
+    id: `H${Date.now()}${Math.floor(Math.random() * 1000)}`,
+    itemId: item.id,
+    itemName: item.name,
+    oldStock: Number(oldStock) || 0,
+    newStock: Number(newStock) || 0,
+    change: (Number(newStock) || 0) - (Number(oldStock) || 0),
+    type,
+    note,
+    user: getCurrentUserLabel(),
+    email: getCurrentUserEmail(),
+    time: Date.now()
+  };
+
+  data.history.unshift(record);
+  data.history = data.history.slice(0, 200);
+
+  item.lastUpdatedBy = record.user;
+  item.lastUpdatedEmail = record.email;
+  item.lastUpdatedAt = record.time;
+  item.lastUpdateType = type;
+
+  return record;
+}
+
+function renderStockHistory() {
+  const list = document.getElementById("stockHistoryList");
+  if (!list) return;
+
+  const records = (data.history || []).slice(0, 10);
+
+  if (!records.length) {
+    list.innerHTML = "尚無庫存異動紀錄";
+    return;
+  }
+
+  list.innerHTML = records.map(record => {
+    const changeText = record.change > 0 ? `+${record.change}` : `${record.change}`;
+    return `
+      <div class="history-row">
+        <div><strong>${record.itemName}</strong> <span class="meta-tag mode">${record.type}</span></div>
+        <div>${record.oldStock} → ${record.newStock}（${changeText}）</div>
+        <div class="history-meta">${record.user}｜${formatDateTime(record.time)}${record.note ? `｜${record.note}` : ""}</div>
+      </div>
+    `;
+  }).join("");
+}
+
 function updateStock() {
   const itemId = document.getElementById("stockItemSelect").value;
   const qty = Number(document.getElementById("stockQtyInput").value);
@@ -691,7 +868,9 @@ function updateStock() {
     return;
   }
 
+  const oldStock = Number(item.stock) || 0;
   item.stock = qty;
+  addStockHistory(item, oldStock, qty, "快速更新");
   lastUpdatedItemId = item.id;
   saveData();
   renderAll();
@@ -721,7 +900,11 @@ function receiveOrder(orderId) {
   order.received += qty;
   updateOrderStatus(order);
 
-  if (item) item.stock += qty;
+  if (item) {
+    const oldStock = Number(item.stock) || 0;
+    item.stock += qty;
+    addStockHistory(item, oldStock, item.stock, "到貨入庫", `${order.date} 叫貨到貨`);
+  }
 
   saveData();
   renderAll();
@@ -794,7 +977,11 @@ function createNewItem({ name, category, safety, dept, note, shared }) {
     dept: dept || category,
     mode: shared ? "共用型" : "觀察型",
     note: note || "",
-    disabled: false
+    disabled: false,
+    lastUpdatedBy: getCurrentUserLabel(),
+    lastUpdatedEmail: getCurrentUserEmail(),
+    lastUpdatedAt: Date.now(),
+    lastUpdateType: "新增品項"
   };
 
   data.items.push(newItem);
@@ -888,7 +1075,7 @@ function addManualOrder() {
   const source = document.getElementById("manualOrderSource").value.trim() || "手動新增";
   const dateInput = document.getElementById("manualOrderDate").value;
   const role = document.getElementById("roleSelect").value;
-  const person = role === "qing" ? "青" : "老闆";
+  const person = role === "qing" ? "青" : (role === "emily" ? "Emily" : "老闆");
 
   const item = getItem(itemId);
 
@@ -937,7 +1124,7 @@ function addManualOrder() {
 
 function mockOCR() {
   const role = document.getElementById("roleSelect").value;
-  const person = role === "qing" ? "青" : "老闆";
+  const person = role === "qing" ? "青" : (role === "emily" ? "Emily" : "老闆");
 
   const newOrder = {
     id: `O${Date.now()}`,
@@ -1208,6 +1395,7 @@ function normalizeRemoteData(remote) {
   if (!Array.isArray(payload.items)) payload.items = [];
   if (!Array.isArray(payload.orders)) payload.orders = [];
   if (!Array.isArray(payload.mappings)) payload.mappings = [];
+  if (!Array.isArray(payload.history)) payload.history = [];
   return payload;
 }
 
@@ -1311,7 +1499,28 @@ function bindScreenshotPreview() {
 }
 
 
+
+function ensureRoleOptions() {
+  const select = document.getElementById("roleSelect");
+  if (!select) return;
+
+  const options = [
+    { value: "emily", label: "Emily" },
+    { value: "qing", label: "青" },
+    { value: "boss", label: "老闆" },
+    { value: "process", label: "製程人員" },
+    { value: "staff", label: "全員 / 美編" }
+  ];
+
+  options.forEach(option => {
+    if (![...select.options].some(existing => existing.value === option.value)) {
+      select.appendChild(new Option(option.label, option.value));
+    }
+  });
+}
+
 function initRole() {
+  ensureRoleOptions();
   if (window.GB_AUTH && window.GB_AUTH.ready) {
     document.getElementById("roleSelect").value = window.GB_AUTH.role || "staff";
     return;
