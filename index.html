@@ -162,6 +162,21 @@
     </div>
 
     <div class="field">
+      <label>截圖幣別</label>
+      <select id="ocrCurrencyInput">
+        <option value="AUTO" selected>自動判斷</option>
+        <option value="CNY">人民幣 CNY / ¥</option>
+        <option value="TWD">台幣 TWD / NT$</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>人民幣匯率（轉台幣）</label>
+      <input id="ocrExchangeRateInput" type="number" min="0" step="0.01" value="4.5" />
+      <p class="note">1688 / 淘寶截圖會自動判斷人民幣，並換算成台幣成本。可依公司實際付款匯率調整。</p>
+    </div>
+
+    <div class="field">
       <label>叫貨日期</label>
       <input id="ocrDateInput" type="date" />
     </div>
