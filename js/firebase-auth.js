@@ -1,11 +1,13 @@
 /*
-  金雀庫存管理系統 v11｜Firebase 設定檔
+  金雀庫存管理系統 v13｜Firebase Auth + Firestore 設定
+  本版不使用 Firebase Storage，可在 Spark 免費方案下運作。
 */
 
 const firebaseConfig = {
   apiKey: "AIzaSyAVJbQCfJe_4nXZR90ZcXL5NLJM6adeF_g",
   authDomain: "gb-inventory-cc151.firebaseapp.com",
-  projectId: "gb-inventory-cc151",  messagingSenderId: "712712345418",
+  projectId: "gb-inventory-cc151",
+  messagingSenderId: "712712345418",
   appId: "1:712712345418:web:15c29e81420604e9c2d3b3"
 };
 
@@ -29,8 +31,8 @@ window.GB_FIREBASE = { app: null, auth: null, db: null, ready: false };
 
 function isFirebaseConfigReady() {
   return firebaseConfig.apiKey &&
-    !firebaseConfig.apiKey.includes("請貼上") &&
     firebaseConfig.appId &&
+    !firebaseConfig.apiKey.includes("請貼上") &&
     !firebaseConfig.appId.includes("請貼上");
 }
 
@@ -76,8 +78,10 @@ function applyRoleToUI(role, userText) {
 function showLoggedOut(message) {
   const authPanel = document.getElementById("authPanel");
   const authMessage = document.getElementById("authMessage");
+
   document.body.classList.add("is-logged-out");
   document.body.classList.remove("is-logged-in");
+
   if (authPanel) authPanel.classList.remove("hidden");
   if (authMessage && message) authMessage.textContent = message;
 }
@@ -87,6 +91,7 @@ async function loginWithGoogle() {
     showLoggedOut("尚未填入完整 Firebase config。");
     return;
   }
+
   const provider = new firebase.auth.GoogleAuthProvider();
   await window.GB_FIREBASE.auth.signInWithPopup(provider);
 }
@@ -98,6 +103,7 @@ async function logoutGoogle() {
     showLoggedOut("已登出測試模式。");
     return;
   }
+
   if (initFirebaseIfReady()) {
     await window.GB_FIREBASE.auth.signOut();
   } else {
