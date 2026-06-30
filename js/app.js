@@ -1124,30 +1124,6 @@ function addManualOrder() {
   showToast(`${item.name} 已新增叫貨，狀態為在途`);
 }
 
-function mockOCR() {
-  const role = document.getElementById("roleSelect").value;
-  const person = role === "qing" ? "青" : (role === "emily" ? "Emily" : "老闆");
-
-  const newOrder = {
-    id: `O${Date.now()}`,
-    date: new Date().toISOString().slice(0, 10),
-    itemId: "I002",
-    qty: 100,
-    received: 0,
-    cost: 1280,
-    source: "1688 模擬辨識",
-    person,
-    status: "在途"
-  };
-
-  data.orders.unshift(newOrder);
-  lastCreatedOrderId = newOrder.id;
-
-  saveData();
-  renderAll();
-  showToast("已模擬辨識：阿里巴巴品名已對應到「壓克力板 3mm」");
-}
-
 function editOrder(id) {
   const order = data.orders.find(item => item.id === id);
   if (!order) return;
@@ -1554,8 +1530,6 @@ function bindEvents() {
     renderAutocomplete("quickStockSearchInput", "quickAutocompleteList", selectQuickStockItem);
   });
   safeOn("quickUpdateStockBtn", "click", quickUpdateStock);
-
-  document.getElementById("mockOcrBtn").addEventListener("click", mockOCR);
   safeOn("manualOrderItemSearch", "input", () => {
     renderAutocomplete("manualOrderItemSearch", "manualOrderAutocompleteList", selectManualOrderItem);
   });
