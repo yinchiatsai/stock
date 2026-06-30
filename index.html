@@ -35,6 +35,7 @@
         </select>
         <button id="clearRoleBtn" class="secondary small" type="button">清除管理身份</button>
         <span id="userInfoText" class="user-info-text">未登入</span>
+        <span id="syncStatusText" class="sync-status-text">尚未同步</span>
         <button id="logoutBtn" class="secondary small" type="button">登出</button>
       </div>
     </div>
@@ -166,7 +167,8 @@
             </div>
             <div class="field full">
               <label>上傳截圖</label>
-              <input type="file" accept="image/*" />
+              <input id="orderScreenshotInput" type="file" accept="image/*" />
+              <div id="screenshotPreview" class="screenshot-preview"></div>
             </div>
           </div>
           <p class="note">正式版會接 AI/OCR。現在先用模擬辨識測流程。</p>
@@ -498,11 +500,10 @@
       </div>
     </div>
   </div>
-
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
   <script src="js/firebase-auth.js"></script>
   <script src="js/app.js"></script>
 </body>
