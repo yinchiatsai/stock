@@ -167,6 +167,7 @@ function renderAll() {
   renderAdmin();
   setManualOrderDefaultDate();
   renderStockHistory();
+  ensureExcelExportButton();
 }
 
 function renderInventory() {
@@ -1687,3 +1688,214 @@ window.addEventListener("gb-role-ready", () => {
     setTimeout(bootSyncIfReady, 1200);
   });
 })();
+
+
+/* v13.3：Excel 匯出功能 */
+function normalizeForExcel(value) {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "boolean") return value ? "是" : "否";
+  return value;
+}
+
+function getTransitQuantityForItem(itemId) {
+  return (data.orders || [])
+    .filter(order => order.itemId === itemId && order.status !== "done" && order.status !== "cancelled")
+    .reduce((sum, order) => sum + (Number(order.qty) || 0), 0);
+}
+
+function getLatestCostForItem(itemId) {
+  const rows = (data.orders || [])
+    .filter(order => order.itemId === itemId && Number(order.cost) > 0)
+    .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+  return rows[0]?.cost || "";
+}
+
+function buildExcelRows() {
+  const items = data.items || [];
+  const orders = data.orders || [];
+  const mappings = data.mappings || [];
+  const history = data.history || [];
+
+  const inventoryRows = items
+    .filter(item => !item.disabled)
+    .map(item => {
+      const transitQty = getTransitQuantityForItem(item.id);
+      const stock = Number(item.stock) || 0;
+      const safety = Number(item.safety) || 0;
+      return {
+        "品項ID": item.id,
+        "品項名稱": item.name,
+        "分類": item.category || "",
+        "管理部門": item.dept || "",
+        "模式": item.mode || "",
+        "目前庫存": stock,
+        "在途數量": transitQty,
+        "安全庫存": safety,
+        "狀態": item.disabled ? "停用" : "啟用",
+        "是否需補貨": stock < safety ? "是" : "否",
+        "建議補貨數": Math.max(safety - stock, 0),
+        "最後更新人": item.lastUpdatedBy || "",
+        "最後更新Email": item.lastUpdatedEmail || "",
+        "最後更新時間": item.lastUpdatedAt ? formatDateTime(item.lastUpdatedAt) : "",
+        "最後更新類型": item.lastUpdateType || "",
+        "備註": item.note || ""
+      };
+    });
+
+  const allItemRows = items.map(item => ({
+    "品項ID": item.id,
+    "品項名稱": item.name,
+    "分類": item.category || "",
+    "管理部門": item.dept || "",
+    "模式": item.mode || "",
+    "目前庫存": Number(item.stock) || 0,
+    "安全庫存": Number(item.safety) || 0,
+    "狀態": item.disabled ? "停用" : "啟用",
+    "最後更新人": item.lastUpdatedBy || "",
+    "最後更新時間": item.lastUpdatedAt ? formatDateTime(item.lastUpdatedAt) : "",
+    "備註": item.note || ""
+  }));
+
+  const transitRows = orders.map(order => {
+    const item = items.find(row => row.id === order.itemId);
+    return {
+      "叫貨ID": order.id || "",
+      "品項ID": order.itemId || "",
+      "品項名稱": item?.name || order.itemName || "",
+      "數量": Number(order.qty) || 0,
+      "成本": Number(order.cost) || 0,
+      "來源": order.source || "",
+      "叫貨人": order.person || "",
+      "叫貨日期": order.date || "",
+      "狀態": order.status === "done" ? "已到貨" : "在途",
+      "備註": order.note || ""
+    };
+  });
+
+  const costRows = items.map(item => {
+    const related = orders.filter(order => order.itemId === item.id && Number(order.cost) > 0);
+    const totalCost = related.reduce((sum, order) => sum + (Number(order.cost) || 0), 0);
+    const totalQty = related.reduce((sum, order) => sum + (Number(order.qty) || 0), 0);
+    return {
+      "品項ID": item.id,
+      "品項名稱": item.name,
+      "最近成本": getLatestCostForItem(item.id),
+      "累計成本": totalCost,
+      "累計數量": totalQty,
+      "平均成本": totalQty ? Math.round((totalCost / totalQty) * 100) / 100 : ""
+    };
+  });
+
+  const reorderRows = items
+    .filter(item => !item.disabled && (Number(item.stock) || 0) < (Number(item.safety) || 0))
+    .map(item => ({
+      "品項ID": item.id,
+      "品項名稱": item.name,
+      "分類": item.category || "",
+      "目前庫存": Number(item.stock) || 0,
+      "安全庫存": Number(item.safety) || 0,
+      "建議補貨數": Math.max((Number(item.safety) || 0) - (Number(item.stock) || 0), 0),
+      "在途數量": getTransitQuantityForItem(item.id),
+      "管理部門": item.dept || ""
+    }));
+
+  const mappingRows = mappings.map(mapping => ({
+    "平台名稱/關鍵字": mapping.platform || mapping.raw || "",
+    "對應內部品項": mapping.itemName || mapping.internal || "",
+    "說明": mapping.note || ""
+  }));
+
+  const historyRows = history.map(record => ({
+    "時間": record.time ? formatDateTime(record.time) : "",
+    "品項ID": record.itemId || "",
+    "品項名稱": record.itemName || "",
+    "原庫存": normalizeForExcel(record.oldStock),
+    "新庫存": normalizeForExcel(record.newStock),
+    "異動": normalizeForExcel(record.change),
+    "類型": record.type || "",
+    "操作人": record.user || "",
+    "Email": record.email || "",
+    "備註": record.note || ""
+  }));
+
+  const infoRows = [{
+    "匯出時間": formatDateTime(Date.now()),
+    "匯出人": getCurrentUserLabel ? getCurrentUserLabel() : "",
+    "匯出Email": getCurrentUserEmail ? getCurrentUserEmail() : "",
+    "資料版本": "v13.3 Excel Export",
+    "備註": "由金雀庫存管理系統自動匯出"
+  }];
+
+  return {
+    "目前庫存": inventoryRows,
+    "在途商品": transitRows,
+    "成本": costRows,
+    "補貨建議": reorderRows,
+    "所有品項": allItemRows,
+    "商品對應": mappingRows,
+    "庫存異動": historyRows,
+    "系統資訊": infoRows
+  };
+}
+
+function autoFitWorksheetColumns(worksheet, rows) {
+  const headers = Object.keys(rows[0] || {});
+  worksheet["!cols"] = headers.map(header => {
+    const maxLength = Math.max(
+      header.length,
+      ...rows.map(row => String(row[header] ?? "").length)
+    );
+    return { wch: Math.min(Math.max(maxLength + 2, 10), 32) };
+  });
+}
+
+function exportInventoryExcel() {
+  if (typeof XLSX === "undefined") {
+    alert("Excel 匯出模組尚未載入完成，請重新整理後再試一次。");
+    return;
+  }
+
+  const workbook = XLSX.utils.book_new();
+  const sheets = buildExcelRows();
+
+  Object.entries(sheets).forEach(([sheetName, rows]) => {
+    const safeRows = rows.length ? rows : [{ "資料": "目前沒有資料" }];
+    const worksheet = XLSX.utils.json_to_sheet(safeRows);
+    autoFitWorksheetColumns(worksheet, safeRows);
+    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName.substring(0, 31));
+  });
+
+  const now = new Date();
+  const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}_${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
+  XLSX.writeFile(workbook, `金雀庫存總表_${stamp}.xlsx`);
+}
+
+function ensureExcelExportButton() {
+  const adminPanel = document.getElementById("admin");
+  if (!adminPanel || document.getElementById("exportExcelBtn")) return;
+
+  const target = adminPanel.querySelector(".admin-grid") || adminPanel.querySelector(".card") || adminPanel;
+
+  const buttonWrap = document.createElement("div");
+  buttonWrap.className = "card excel-export-card";
+  buttonWrap.innerHTML = `
+    <h3>資料匯出</h3>
+    <p class="note">匯出目前庫存、在途商品、成本、補貨建議、所有品項與異動紀錄。</p>
+    <button id="exportExcelBtn" type="button">📥 匯出 Excel</button>
+  `;
+
+  if (target === adminPanel) {
+    adminPanel.appendChild(buttonWrap);
+  } else {
+    target.insertAdjacentElement("beforebegin", buttonWrap);
+  }
+
+  document.getElementById("exportExcelBtn").addEventListener("click", exportInventoryExcel);
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  setTimeout(ensureExcelExportButton, 500);
+  setTimeout(ensureExcelExportButton, 1500);
+});
+
+window.exportInventoryExcel = exportInventoryExcel;
