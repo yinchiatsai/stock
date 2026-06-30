@@ -151,7 +151,7 @@ function switchTab(tab) {
     button.classList.toggle("active", button.dataset.tab === tab);
   });
 
-  document.querySelectorAll(".tab-panel").forEach(panel => {
+  document.querySelectorAll(".tab-panel, section.panel").forEach(panel => {
     panel.classList.toggle("hidden", panel.id !== tab);
   });
 
@@ -1510,7 +1510,9 @@ function initRole() {
 
 function bindEvents() {
   document.querySelectorAll(".tab").forEach(button => {
+    if (button.dataset.tabBound === "true") return;
     button.addEventListener("click", () => switchTab(button.dataset.tab));
+    button.dataset.tabBound = "true";
   });
 
   document.getElementById("searchInput").addEventListener("input", renderInventory);
@@ -2263,3 +2265,20 @@ document.addEventListener("DOMContentLoaded", () => {
 
 window.runOcrRecognition = runOcrRecognition;
 window.parseOcrTextToRows = parseOcrTextToRows;
+
+
+/* v14：正式整合版診斷 */
+window.GB_VERSION = "v14-official-integrated";
+function gbDiagnostic() {
+  return {
+    version: window.GB_VERSION,
+    firebaseReady: !!window.GB_FIREBASE?.ready,
+    authReady: !!window.GB_AUTH?.ready,
+    currentRole: window.GB_AUTH?.role,
+    currentUser: window.GB_AUTH?.user,
+    hasOcrTab: !!document.querySelector('[data-tab="ocr"]'),
+    hasOcrPanel: !!document.getElementById("ocr"),
+    currentTab
+  };
+}
+window.gbDiagnostic = gbDiagnostic;
