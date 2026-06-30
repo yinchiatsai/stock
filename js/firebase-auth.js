@@ -13,16 +13,16 @@ const firebaseConfig = {
 
 const USER_ROLES = {
   "goldenbirdhello@gmail.com": "staff",
-  "unrealmonde@gmail.com": "Emily",
-  "hey2501@gmail.com": "Qing",
+  "unrealmonde@gmail.com": "emily",
+  "hey2501@gmail.com": "qing",
   "process@example.com": "process",
   "sun4041098@gmail.com": "boss"
 };
 
 const ROLE_LABEL = {
   boss: "老闆",
-  Qing: "青",
-  Emily: "Emily"
+  qing: "青",
+  emily: "Emily",
   process: "製程人員",
   staff: "全員 / 美編"
 };
