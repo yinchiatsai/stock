@@ -1,26 +1,20 @@
 /*
-  金雀庫存管理系統 v9｜Google 登入設定檔
+  金雀庫存管理系統 v10｜Firebase 設定檔
 
-  使用前請做兩件事：
-  1. 到 Firebase Console 建立專案
-  2. 將 Firebase 專案設定中的 firebaseConfig 貼到下面
-  3. 將 USER_ROLES 裡的 email 改成實際人員的 Google 帳號
-
-  角色：
-  boss    = 老闆，管理者權限
-  qing    = 青，管理者權限
-  process = 製程人員，可更新庫存 / 到貨
-  staff   = 美編 / 全員，只能查看
+  請把 Firebase 後台的完整 apiKey 與 appId 補進來。
 */
 
 const firebaseConfig = {
-  apiKey: "PASTE_YOUR_API_KEY",
-  authDomain: "PASTE_YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "PASTE_YOUR_PROJECT_ID",
-  appId: "PASTE_YOUR_APP_ID"
+  apiKey: "AIzaSyAVJbQCfJe_4nXZR90ZcXL5NLJM6adeF_g",
+  authDomain: "gb-inventory-cc151.firebaseapp.com",
+  projectId: "gb-inventory-cc151",
+  storageBucket: "gb-inventory-cc151.firebasestorage.app",
+  messagingSenderId: "712712345418",
+  appId: "1:712712345418:web:15c29e81420604e9c2d3b3"
 };
 
 const USER_ROLES = {
+  "goldenbirdhello@gmail.com": "boss",
   "boss@example.com": "boss",
   "qing@example.com": "qing",
   "process@example.com": "process",
@@ -34,15 +28,27 @@ const ROLE_LABEL = {
   staff: "全員 / 美編"
 };
 
-window.GB_AUTH = {
-  user: null,
-  role: "staff",
-  ready: false,
-  demoMode: false
-};
+window.GB_AUTH = { user: null, role: "staff", ready: false, demoMode: false };
+window.GB_FIREBASE = { app: null, auth: null, db: null, storage: null, ready: false };
 
 function isFirebaseConfigReady() {
-  return firebaseConfig.apiKey && !firebaseConfig.apiKey.includes("PASTE_");
+  return firebaseConfig.apiKey &&
+    !firebaseConfig.apiKey.includes("請貼上") &&
+    firebaseConfig.appId &&
+    !firebaseConfig.appId.includes("請貼上");
+}
+
+function initFirebaseIfReady() {
+  if (!isFirebaseConfigReady()) return false;
+  if (window.GB_FIREBASE.ready) return true;
+
+  firebase.initializeApp(firebaseConfig);
+  window.GB_FIREBASE.app = firebase.app();
+  window.GB_FIREBASE.auth = firebase.auth();
+  window.GB_FIREBASE.db = firebase.firestore();
+  window.GB_FIREBASE.storage = firebase.storage();
+  window.GB_FIREBASE.ready = true;
+  return true;
 }
 
 function applyRoleToUI(role, userText) {
@@ -64,7 +70,6 @@ function applyRoleToUI(role, userText) {
 
   document.body.classList.remove("is-logged-out");
   document.body.classList.add("is-logged-in");
-
   if (authPanel) authPanel.classList.add("hidden");
 
   window.dispatchEvent(new CustomEvent("gb-role-ready", {
@@ -75,22 +80,19 @@ function applyRoleToUI(role, userText) {
 function showLoggedOut(message) {
   const authPanel = document.getElementById("authPanel");
   const authMessage = document.getElementById("authMessage");
-
   document.body.classList.add("is-logged-out");
   document.body.classList.remove("is-logged-in");
-
   if (authPanel) authPanel.classList.remove("hidden");
   if (authMessage && message) authMessage.textContent = message;
 }
 
 async function loginWithGoogle() {
-  if (!isFirebaseConfigReady()) {
-    showLoggedOut("尚未填入 Firebase config。請先設定 Firebase，或暫時使用測試模式。");
+  if (!initFirebaseIfReady()) {
+    showLoggedOut("尚未填入完整 Firebase config。請先到 js/firebase-auth.js 貼上 apiKey 和 appId。");
     return;
   }
-
   const provider = new firebase.auth.GoogleAuthProvider();
-  await firebase.auth().signInWithPopup(provider);
+  await window.GB_FIREBASE.auth.signInWithPopup(provider);
 }
 
 async function logoutGoogle() {
@@ -100,9 +102,8 @@ async function logoutGoogle() {
     showLoggedOut("已登出測試模式。");
     return;
   }
-
-  if (isFirebaseConfigReady()) {
-    await firebase.auth().signOut();
+  if (initFirebaseIfReady()) {
+    await window.GB_FIREBASE.auth.signOut();
   } else {
     showLoggedOut("已登出。");
   }
@@ -125,14 +126,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
   showLoggedOut(isFirebaseConfigReady()
     ? "請使用公司授權的 Google 帳號登入。"
-    : "尚未設定 Firebase config。可先用測試模式查看系統。"
+    : "尚未填入完整 Firebase config。可先用測試模式查看系統。"
   );
 
-  if (!isFirebaseConfigReady()) return;
+  if (!initFirebaseIfReady()) return;
 
-  firebase.initializeApp(firebaseConfig);
-
-  firebase.auth().onAuthStateChanged(user => {
+  window.GB_FIREBASE.auth.onAuthStateChanged(user => {
     if (!user) {
       window.GB_AUTH.user = null;
       showLoggedOut("請使用公司授權的 Google 帳號登入。");
@@ -140,12 +139,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const role = USER_ROLES[user.email] || "staff";
-
-    window.GB_AUTH.user = {
-      email: user.email,
-      displayName: user.displayName
-    };
-
+    window.GB_AUTH.user = { email: user.email, displayName: user.displayName };
     applyRoleToUI(role, `${user.displayName || user.email}｜${ROLE_LABEL[role]}`);
   });
 });
