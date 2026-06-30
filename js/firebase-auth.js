@@ -5,9 +5,7 @@
 const firebaseConfig = {
   apiKey: "AIzaSyAVJbQCfJe_4nXZR90ZcXL5NLJM6adeF_g",
   authDomain: "gb-inventory-cc151.firebaseapp.com",
-  projectId: "gb-inventory-cc151",
-  storageBucket: "gb-inventory-cc151.firebasestorage.app",
-  messagingSenderId: "712712345418",
+  projectId: "gb-inventory-cc151",  messagingSenderId: "712712345418",
   appId: "1:712712345418:web:15c29e81420604e9c2d3b3"
 };
 
@@ -27,7 +25,7 @@ const ROLE_LABEL = {
 };
 
 window.GB_AUTH = { user: null, role: "staff", ready: false, demoMode: false };
-window.GB_FIREBASE = { app: null, auth: null, db: null, storage: null, ready: false };
+window.GB_FIREBASE = { app: null, auth: null, db: null, ready: false };
 
 function isFirebaseConfigReady() {
   return firebaseConfig.apiKey &&
@@ -45,7 +43,6 @@ function initFirebaseIfReady() {
   window.GB_FIREBASE.app = firebase.app();
   window.GB_FIREBASE.auth = firebase.auth();
   window.GB_FIREBASE.db = firebase.firestore();
-  window.GB_FIREBASE.storage = firebase.storage();
   window.GB_FIREBASE.ready = true;
   return true;
 }
