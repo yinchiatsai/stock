@@ -1,7 +1,5 @@
 /*
-  金雀庫存管理系統 v10｜Firebase 設定檔
-
-  請把 Firebase 後台的完整 apiKey 與 appId 補進來。
+  金雀庫存管理系統 v11｜Firebase 設定檔
 */
 
 const firebaseConfig = {
@@ -42,7 +40,8 @@ function initFirebaseIfReady() {
   if (!isFirebaseConfigReady()) return false;
   if (window.GB_FIREBASE.ready) return true;
 
-  firebase.initializeApp(firebaseConfig);
+  if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+
   window.GB_FIREBASE.app = firebase.app();
   window.GB_FIREBASE.auth = firebase.auth();
   window.GB_FIREBASE.db = firebase.firestore();
@@ -88,7 +87,7 @@ function showLoggedOut(message) {
 
 async function loginWithGoogle() {
   if (!initFirebaseIfReady()) {
-    showLoggedOut("尚未填入完整 Firebase config。請先到 js/firebase-auth.js 貼上 apiKey 和 appId。");
+    showLoggedOut("尚未填入完整 Firebase config。");
     return;
   }
   const provider = new firebase.auth.GoogleAuthProvider();
