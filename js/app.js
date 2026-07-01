@@ -1521,7 +1521,7 @@ function bindEvents() {
   const clearRoleBtn = document.getElementById("clearRoleBtn");
   if (clearRoleBtn) clearRoleBtn.addEventListener("click", clearRole);
   document.getElementById("restockToggleBtn").addEventListener("click", toggleRestockOnly);
-  document.getElementById("resetDemoBtn").addEventListener("click", resetDemoData);
+  safeOn("resetDemoBtn", "click", resetDemoData);
 
   document.getElementById("stockSearchInput").addEventListener("input", () => {
     renderAutocomplete("stockSearchInput", "autocompleteList", selectStockItem);
@@ -3177,3 +3177,193 @@ function gbDiagnostic() {
 }
 window.gbDiagnostic = gbDiagnostic;
 window.parseOcrTextToRows = gbOcrParseText;
+
+
+
+/* GoldenBird Inventory v1.5：正式上線 UI 清理 */
+window.GB_VERSION = "goldenbird-inventory-v1.5-ui-launch-cleanup";
+
+function ensureLaunchCleanupStyles() {
+  if (document.getElementById("launchCleanupStyles")) return;
+
+  const style = document.createElement("style");
+  style.id = "launchCleanupStyles";
+  style.textContent = `
+    /* 正式上線：隱藏示範資料重置 */
+    #resetDemoBtn{
+      display:none !important;
+    }
+
+    /* 管理後台叫貨管理滿版，避免右側大空白 */
+    #adminContent .order-section{
+      width:100%;
+    }
+    #adminContent .order-input-grid{
+      display:grid;
+      grid-template-columns:1fr !important;
+      gap:18px;
+      width:100%;
+    }
+    #adminContent .order-input-grid > .card{
+      width:100%;
+      box-sizing:border-box;
+    }
+    #adminContent .admin-section{
+      width:100%;
+      box-sizing:border-box;
+    }
+
+    /* 桌機庫存列表維持表格式 */
+    .inventory-list .inventory-row{
+      align-items:center;
+    }
+
+    /* 手機版庫存總覽：緊湊單欄，最多約兩行 */
+    @media (max-width: 760px){
+      #overview .toolbar{
+        gap:10px;
+      }
+
+      #inventoryGrid .inventory-list{
+        display:flex;
+        flex-direction:column;
+        gap:8px;
+      }
+
+      #inventoryGrid .inventory-row.header{
+        display:none !important;
+      }
+
+      #inventoryGrid .inventory-row{
+        display:grid !important;
+        grid-template-columns:1fr auto;
+        grid-template-areas:
+          "name status"
+          "numbers numbers";
+        gap:6px 10px;
+        padding:10px 12px !important;
+        border-radius:14px;
+        min-height:auto !important;
+      }
+
+      #inventoryGrid .inventory-name{
+        grid-area:name;
+        min-width:0;
+      }
+
+      #inventoryGrid .inventory-name strong{
+        display:block;
+        font-size:16px;
+        line-height:1.25;
+        white-space:nowrap;
+        overflow:hidden;
+        text-overflow:ellipsis;
+      }
+
+      #inventoryGrid .meta-tags{
+        display:flex;
+        flex-wrap:nowrap;
+        gap:5px;
+        margin-top:4px;
+        overflow:hidden;
+      }
+
+      #inventoryGrid .meta-tag{
+        font-size:11px;
+        padding:3px 7px;
+        white-space:nowrap;
+        max-width:88px;
+        overflow:hidden;
+        text-overflow:ellipsis;
+      }
+
+      #inventoryGrid .meta-tag:nth-child(n+4){
+        display:none;
+      }
+
+      #inventoryGrid .inventory-row > div:nth-child(5){
+        grid-area:status;
+        align-self:start;
+        justify-self:end;
+      }
+
+      #inventoryGrid .inventory-row > div:nth-child(2),
+      #inventoryGrid .inventory-row > div:nth-child(3),
+      #inventoryGrid .inventory-row > div:nth-child(4),
+      #inventoryGrid .inventory-row > div:nth-child(6){
+        grid-area:numbers;
+      }
+
+      #inventoryGrid .inventory-row > div:nth-child(2){
+        justify-self:start;
+        margin-top:2px;
+      }
+      #inventoryGrid .inventory-row > div:nth-child(3){
+        justify-self:start;
+        margin-left:74px;
+        margin-top:2px;
+      }
+      #inventoryGrid .inventory-row > div:nth-child(4){
+        justify-self:start;
+        margin-left:148px;
+        margin-top:2px;
+      }
+      #inventoryGrid .inventory-row > div:nth-child(6){
+        justify-self:end;
+        margin-top:2px;
+      }
+
+      #inventoryGrid .num-cell,
+      #inventoryGrid .suggest-cell{
+        font-size:14px;
+        line-height:1.4;
+        color:var(--text);
+      }
+
+      #inventoryGrid .stock-cell::before{
+        content:"庫 ";
+        color:var(--muted);
+        font-weight:600;
+      }
+      #inventoryGrid .incoming-cell::before{
+        content:"途 ";
+        color:var(--muted);
+        font-weight:600;
+      }
+      #inventoryGrid .safety-cell::before{
+        content:"安 ";
+        color:var(--muted);
+        font-weight:600;
+      }
+      #inventoryGrid .suggest-cell::before{
+        content:"補 ";
+        color:var(--muted);
+        font-weight:600;
+      }
+
+      #inventoryGrid .safety-input{
+        width:44px !important;
+        padding:2px 4px !important;
+        font-size:13px !important;
+        text-align:center;
+      }
+
+      #inventoryGrid .badge{
+        font-size:12px;
+        padding:4px 8px;
+        white-space:nowrap;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  ensureLaunchCleanupStyles();
+});
+
+const gbOldRenderAllForLaunchCleanup = renderAll;
+renderAll = function() {
+  gbOldRenderAllForLaunchCleanup();
+  ensureLaunchCleanupStyles();
+};
