@@ -2428,4 +2428,319 @@ const gbV11RenderAll=renderAll;
 renderAll=function(){gbV11RenderAll();ensureV11StableStyles();removeV11UnusedUI();};
 
 window.gbDiagnostic=function(){return {version:window.GB_VERSION,firebaseReady:!!window.GB_FIREBASE?.ready,authReady:!!window.GB_AUTH?.ready,currentRole:window.GB_AUTH?.role,currentUser:window.GB_AUTH?.user,currentTab};};
-ㄋ
+
+
+/* GoldenBird Inventory v1.1.1｜快速盤點按鈕視覺優化 */
+window.GB_VERSION = "goldenbird-inventory-v1.1.1-compact-audit-button";
+
+function ensureCompactAuditButtonStyles() {
+  if (document.getElementById("compactAuditButtonStyles")) return;
+
+  const style = document.createElement("style");
+  style.id = "compactAuditButtonStyles";
+  style.textContent = `
+    #inventoryGrid .inventory-row {
+      position: relative;
+    }
+
+    #inventoryGrid .quick-stock-btn {
+      width: 32px !important;
+      height: 32px !important;
+      min-width: 32px !important;
+      padding: 0 !important;
+      border-radius: 999px !important;
+      font-size: 0 !important;
+      line-height: 1 !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      background: #ffffff !important;
+      border: 1px solid var(--line) !important;
+      color: var(--text) !important;
+      box-shadow: 0 4px 12px rgba(0,0,0,.06);
+      opacity: .55;
+      transition: opacity .18s ease, transform .18s ease, background .18s ease;
+    }
+
+    #inventoryGrid .quick-stock-btn::before {
+      content: "✏️";
+      font-size: 14px;
+      line-height: 1;
+    }
+
+    #inventoryGrid .inventory-row:hover .quick-stock-btn {
+      opacity: 1;
+      transform: translateY(-1px);
+      background: #f8fbfb !important;
+    }
+
+    @media (min-width: 761px) {
+      #inventoryGrid .quick-stock-btn {
+        position: absolute;
+        right: 14px;
+        bottom: 12px;
+      }
+
+      #inventoryGrid .inventory-row {
+        padding-bottom: 18px !important;
+      }
+    }
+
+    @media (max-width: 760px) {
+      #inventoryGrid .inventory-row {
+        grid-template-columns: 1fr auto;
+        grid-template-areas:
+          "name status"
+          "numbers action" !important;
+      }
+
+      #inventoryGrid .quick-stock-btn {
+        grid-area: action !important;
+        justify-self: end !important;
+        align-self: center !important;
+        margin: 0 !important;
+        width: 30px !important;
+        height: 30px !important;
+        min-width: 30px !important;
+        opacity: .75;
+      }
+
+      #inventoryGrid .quick-stock-btn::before {
+        font-size: 13px;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  ensureCompactAuditButtonStyles();
+});
+
+const gbCompactAuditRenderAll = renderAll;
+renderAll = function() {
+  gbCompactAuditRenderAll();
+  ensureCompactAuditButtonStyles();
+};
+
+
+function normalizeQuickStockButtons() {
+  document.querySelectorAll("#inventoryGrid .quick-stock-btn").forEach(btn => {
+    btn.textContent = "";
+    btn.title = "快速盤點";
+    btn.setAttribute("aria-label", "快速盤點");
+  });
+}
+
+const gbCompactAuditRenderInventory = renderInventory;
+renderInventory = function() {
+  gbCompactAuditRenderInventory();
+  normalizeQuickStockButtons();
+};
+
+document.addEventListener("DOMContentLoaded", () => {
+  setTimeout(normalizeQuickStockButtons, 300);
+});
+
+
+/* GoldenBird Inventory v1.2 Stable｜正式版介面優化 */
+window.GB_VERSION = "goldenbird-inventory-v1.2-stable-ui-polish";
+
+function ensureV12PolishStyles() {
+  if (document.getElementById("v12PolishStyles")) return;
+
+  const style = document.createElement("style");
+  style.id = "v12PolishStyles";
+  style.textContent = `
+    .duplicate-hint {
+      margin-top: 8px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: #fff8e8;
+      color: #6d5a2b;
+      font-size: 13px;
+      line-height: 1.55;
+      border: 1px solid #f1dfb8;
+    }
+    .duplicate-hint.hidden {
+      display: none;
+    }
+    .duplicate-hint strong {
+      color: #344f55;
+    }
+    .duplicate-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin: 4px 4px 0 0;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #fff;
+      border: 1px solid #ead9ae;
+      color: #344f55;
+      font-size: 12px;
+    }
+    .duplicate-hint.is-error {
+      background: #fff1ed;
+      border-color: #efc5b7;
+      color: #8b3a2a;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function normalizeItemNameForDuplicate(name) {
+  return String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[()（）【】\[\]{}「」『』\-＿_\/\\,，.。:：;；]/g, "");
+}
+
+function findDuplicateItemsByName(name) {
+  const normalized = normalizeItemNameForDuplicate(name);
+  if (!normalized) return { exact: null, similar: [] };
+
+  const activeItems = (data.items || []).filter(item => !item.disabled);
+  const exact = activeItems.find(item => normalizeItemNameForDuplicate(item.name) === normalized) || null;
+
+  const similar = activeItems
+    .filter(item => item !== exact)
+    .map(item => {
+      const itemName = normalizeItemNameForDuplicate(item.name);
+      let score = 0;
+      if (itemName.includes(normalized) || normalized.includes(itemName)) score += 80;
+      [...new Set(normalized.split(""))].forEach(ch => {
+        if (itemName.includes(ch)) score += 1;
+      });
+      return { item, score };
+    })
+    .filter(row => row.score >= 4 || normalizeItemNameForDuplicate(row.item.name).includes(normalized.slice(0, 2)))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 6)
+    .map(row => row.item);
+
+  return { exact, similar };
+}
+
+function updateNewItemDuplicateHint() {
+  const input = document.getElementById("newItemNameManage");
+  const hint = document.getElementById("newItemDuplicateHint");
+  if (!input || !hint) return;
+
+  const name = input.value.trim();
+  if (!name) {
+    hint.classList.add("hidden");
+    hint.classList.remove("is-error");
+    hint.innerHTML = "";
+    return;
+  }
+
+  const { exact, similar } = findDuplicateItemsByName(name);
+
+  if (exact) {
+    hint.classList.remove("hidden");
+    hint.classList.add("is-error");
+    hint.innerHTML = `⚠️ 已存在相同品項：<strong>${escapeHtml(exact.name)}</strong>。請勿重複新增，可直接到庫存總覽搜尋此品項。`;
+    return;
+  }
+
+  if (similar.length) {
+    hint.classList.remove("hidden");
+    hint.classList.remove("is-error");
+    hint.innerHTML = `可能相關的既有品項：<br>${similar.map(item => `<span class="duplicate-chip">${escapeHtml(item.name)}</span>`).join("")}`;
+    return;
+  }
+
+  hint.classList.add("hidden");
+  hint.classList.remove("is-error");
+  hint.innerHTML = "";
+}
+
+const gbV12CreateNewItem = createNewItem;
+createNewItem = function(payload) {
+  const name = payload?.name || "";
+  const { exact } = findDuplicateItemsByName(name);
+  if (exact) {
+    showToast(`已存在相同品項：${exact.name}`);
+    updateNewItemDuplicateHint();
+    return;
+  }
+  gbV12CreateNewItem(payload);
+};
+
+const gbV12AddNewItemFromManage = addNewItemFromManage;
+addNewItemFromManage = function() {
+  const nameInput = document.getElementById("newItemNameManage");
+  const name = nameInput?.value.trim() || "";
+  const { exact } = findDuplicateItemsByName(name);
+
+  if (exact) {
+    showToast(`已存在相同品項：${exact.name}`);
+    updateNewItemDuplicateHint();
+    nameInput?.focus();
+    return;
+  }
+
+  const previousCategory = document.getElementById("newItemCategoryManage")?.value || "";
+  const previousDept = document.getElementById("newItemDeptManage")?.value || "";
+  const previousShared = document.getElementById("newItemSharedManage")?.checked || false;
+
+  gbV12AddNewItemFromManage();
+
+  // 大量新增時保留分類、部門、共用設定，只清空品名/初始庫存/安全庫存/備註
+  const categorySelect = document.getElementById("newItemCategoryManage");
+  const deptInput = document.getElementById("newItemDeptManage");
+  const sharedInput = document.getElementById("newItemSharedManage");
+  if (categorySelect && previousCategory) categorySelect.value = previousCategory;
+  if (deptInput && previousDept) deptInput.value = previousDept;
+  if (sharedInput) sharedInput.checked = previousShared;
+
+  document.getElementById("newItemNameManage")?.focus();
+  updateNewItemDuplicateHint();
+};
+
+function removeV12ObsoleteText() {
+  document.querySelectorAll(".badge, .note").forEach(el => {
+    const text = (el.textContent || "").trim();
+    if (
+      text.includes("上傳截圖或手動新增") ||
+      text.includes("目前資料存在瀏覽器") ||
+      text.includes("正式版會改接 Firebase") ||
+      text.includes("若輸入錯誤，可以再次搜尋同一品項")
+    ) {
+      el.remove();
+    }
+  });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  ensureV12PolishStyles();
+  removeV12ObsoleteText();
+
+  const nameInput = document.getElementById("newItemNameManage");
+  if (nameInput && nameInput.dataset.duplicateBound !== "true") {
+    nameInput.addEventListener("input", updateNewItemDuplicateHint);
+    nameInput.addEventListener("blur", updateNewItemDuplicateHint);
+    nameInput.dataset.duplicateBound = "true";
+  }
+});
+
+const gbV12RenderAll = renderAll;
+renderAll = function() {
+  gbV12RenderAll();
+  ensureV12PolishStyles();
+  removeV12ObsoleteText();
+  updateNewItemDuplicateHint();
+};
+
+window.gbDiagnostic = function() {
+  return {
+    version: window.GB_VERSION,
+    firebaseReady: !!window.GB_FIREBASE?.ready,
+    authReady: !!window.GB_AUTH?.ready,
+    currentRole: window.GB_AUTH?.role,
+    currentUser: window.GB_AUTH?.user,
+    currentTab
+  };
+};
