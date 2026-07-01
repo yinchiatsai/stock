@@ -2285,35 +2285,42 @@ window.gbDiagnostic = gbDiagnostic;
 
 
 
-/* GoldenBird Inventory v1.0：正式 OCR 採購助手
-   覆蓋舊 OCR 函式，不使用 Storage，圖片只在瀏覽器本機辨識。
-*/
-window.GB_VERSION = "goldenbird-inventory-v1.0-ocr";
-
-let gbOcrRows = [];
-
-function gbSafeText(value) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+/* GoldenBird Inventory v1.1：OCR 版面與 1688 多品項解析修正 */
+window.GB_VERSION = "goldenbird-inventory-v1.1-ocr-layout-parser";
 
 function gbOcrEnsureStyles() {
-  if (document.getElementById("gbOcrStyles")) return;
-  const style = document.createElement("style");
-  style.id = "gbOcrStyles";
+  let style = document.getElementById("gbOcrStyles");
+  if (!style) {
+    style = document.createElement("style");
+    style.id = "gbOcrStyles";
+    document.head.appendChild(style);
+  }
   style.textContent = `
     #ocr:not(.hidden){ display:block; }
+    #ocr .card{ overflow:visible; }
+    .ocr-preview{
+      display:flex;
+      justify-content:flex-start;
+      align-items:flex-start;
+      margin-top:12px;
+    }
     .ocr-preview img{
-      max-width:100%;
-      max-height:520px;
+      width:min(360px, 100%);
+      max-height:360px;
       object-fit:contain;
       border-radius:16px;
       border:1px solid var(--line);
-      margin-top:12px;
       background:#fff;
+      box-shadow:0 8px 24px rgba(0,0,0,.06);
+    }
+    #ocrTextOutput{
+      width:100%;
+      min-height:280px;
+      font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      line-height:1.55;
+      white-space:pre-wrap;
+      resize:vertical;
+      box-sizing:border-box;
     }
     .ocr-result-list{
       display:flex;
@@ -2322,7 +2329,7 @@ function gbOcrEnsureStyles() {
     }
     .ocr-row{
       display:grid;
-      grid-template-columns:1.35fr 1.25fr .6fr .7fr .7fr;
+      grid-template-columns:minmax(220px, 1.35fr) minmax(220px, 1.25fr) minmax(90px, .55fr) minmax(110px, .65fr) minmax(180px, .9fr);
       gap:10px;
       align-items:end;
       border:1px solid var(--line);
@@ -2336,6 +2343,7 @@ function gbOcrEnsureStyles() {
       color:var(--muted);
       font-size:13px;
       line-height:1.5;
+      word-break:break-word;
     }
     .ocr-row .currency-note{
       grid-column:1/-1;
@@ -2354,132 +2362,47 @@ function gbOcrEnsureStyles() {
       font-size:12px;
       margin-left:6px;
     }
+    @media (min-width: 980px){
+      #ocr .card textarea#ocrTextOutput{
+        min-height:360px;
+        font-size:15px;
+      }
+      #ocr .ocr-preview img{
+        width:320px;
+        max-height:320px;
+      }
+    }
     @media (max-width: 760px){
+      .ocr-preview img{
+        width:100%;
+        max-height:420px;
+      }
+      #ocrTextOutput{
+        min-height:220px;
+      }
       .ocr-row{ grid-template-columns:1fr; }
       .ocr-row .raw-text,.ocr-row .currency-note{ grid-column:auto; }
     }
   `;
-  document.head.appendChild(style);
 }
 
-function gbOcrDefaultDate() {
-  const dateInput = document.getElementById("ocrDateInput");
-  if (dateInput && !dateInput.value) dateInput.value = new Date().toISOString().slice(0, 10);
+function gbOcrExtractSpecValue(line) {
+  const value = String(line || "");
+  const match = value.match(/(?:颜色|顏色|款式|規格|规格)[:：]\s*([^\s\/|]+)/);
+  return match ? match[1].trim() : "";
 }
 
-function gbOcrDetectCurrency(text) {
-  const value = String(text || "");
-  const source = document.getElementById("ocrSourceInput")?.value || "";
-  const combined = `${value} ${source}`.toLowerCase();
-
-  if (/nt\$|n t|台幣|新台幣|蝦皮|shopee/.test(combined)) return "TWD";
-  if (/¥|￥|1688|淘寶|淘宝|阿里|人民币|人民幣|rmb|cny/.test(combined)) return "CNY";
-  return "CNY";
+function gbOcrLooksLikeVariantLine(line) {
+  return /(?:颜色|顏色|款式)[:：]/.test(String(line || ""));
 }
 
-function gbOcrCurrency() {
-  const selected = document.getElementById("ocrCurrencyInput")?.value || "AUTO";
-  if (selected !== "AUTO") return selected;
-  return gbOcrDetectCurrency(document.getElementById("ocrTextOutput")?.value || "");
-}
-
-function gbOcrRate() {
-  const rate = Number(document.getElementById("ocrExchangeRateInput")?.value || 4.5);
-  return rate > 0 ? rate : 4.5;
-}
-
-function gbOcrToTwd(rawCost) {
-  const cost = Number(rawCost) || 0;
-  return gbOcrCurrency() === "CNY" ? Math.round(cost * gbOcrRate() * 100) / 100 : cost;
-}
-
-function gbOcrFormatMoney(rawCost) {
-  const cost = Number(rawCost) || 0;
-  if (gbOcrCurrency() === "CNY") return `原始人民幣 ¥${cost} → 台幣 NT$${gbOcrToTwd(cost)}（匯率 ${gbOcrRate()}）`;
-  return `台幣 NT$${cost}`;
-}
-
-function gbNormalizeText(text) {
-  return String(text || "")
-    .toLowerCase()
-    .replace(/\s+/g, "")
-    .replace(/[()（）【】\[\]\/\-_,，。:：]/g, "");
-}
-
-function gbOcrScoreItem(item, text) {
-  const target = gbNormalizeText(text);
-  const name = gbNormalizeText(item.name);
-  let score = 0;
-
-  if (!target || !name) return 0;
-  if (target.includes(name)) score += 200;
-  if (name.includes(target) && target.length >= 2) score += 80;
-
-  const nameParts = String(item.name || "").split(/[\s\/\-()（）【】]+/).filter(Boolean);
-  nameParts.forEach(part => {
-    const p = gbNormalizeText(part);
-    if (p.length >= 2 && target.includes(p)) score += Math.min(p.length * 8, 60);
-  });
-
-  (data.mappings || []).forEach(mapping => {
-    const keyword = gbNormalizeText(mapping.keyword || mapping.platform || mapping.raw);
-    const itemMatch = mapping.itemId === item.id || gbNormalizeText(mapping.itemName || mapping.internal) === name;
-    if (itemMatch && keyword && target.includes(keyword)) score += 240;
-
-    if (itemMatch && keyword) {
-      String(mapping.keyword || "").split(/[\/,，、\s]+/).filter(Boolean).forEach(part => {
-        const p = gbNormalizeText(part);
-        if (p.length >= 2 && target.includes(p)) score += Math.min(p.length * 12, 80);
-      });
-    }
-  });
-
-  return score;
-}
-
-function gbOcrBestItem(text) {
-  const candidates = (data.items || [])
-    .filter(item => !item.disabled)
-    .map(item => ({ item, score: gbOcrScoreItem(item, text) }))
-    .filter(row => row.score > 0)
-    .sort((a, b) => b.score - a.score);
-
-  return candidates[0] || null;
-}
-
-function gbOcrCleanLine(line) {
-  return String(line || "")
-    .replace(/退货包运费|退貨包運費|包邮|包郵|包运费|包運費/g, "")
-    .replace(/待收货|待收貨|待发货|待發貨|交易关闭|交易關閉|确认收货|確認收貨/g, "")
-    .replace(/查看物流|再次购买|再次購買|延长收货|提醒发货|修改地址/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function gbOcrExtractPrice(line) {
-  const value = String(line);
-  const money = value.match(/[¥￥]\s*([0-9]+(?:\.[0-9]+)?)/);
-  if (money) return Number(money[1]);
-
-  const nt = value.match(/(?:NT\$|NT|台幣|新台幣|\$)\s*([0-9]+(?:\.[0-9]+)?)/i);
-  if (nt) return Number(nt[1]);
-
-  return "";
-}
-
-function gbOcrExtractQty(line) {
-  const value = String(line);
-  const matches = [...value.matchAll(/[×xX]\s*([0-9]+)/g)];
-  if (matches.length) return Number(matches[matches.length - 1][1]);
-
-  const qty = value.match(/(?:数量|數量|qty|Qty|QTY)[:：\s]*([0-9]+)/);
-  if (qty) return Number(qty[1]);
-
-  return "";
-}
-
-function gbOcrIsNoise(line) {
-  return /搜索|订单|訂單|全部|待付款|退款|退貨|评价|評價|平台提醒|更多|总实付|總實付|含运费|含運費|已签收|已簽收|您的快件|快递员|快遞員|物流|商家选择|商家選擇|应付款|應付款|满|減|减/.test(line);
+function gbOcrLooksLikeNameLine(line) {
+  const value = String(line || "");
+  if (!/[\u4e00-\u9fa5A-Za-z]/.test(value)) return false;
+  if (gbOcrIsNoise(value)) return false;
+  if (gbOcrLooksLikeVariantLine(value)) return false;
+  if (/^[¥￥NT\$\d×xX\s\.]+$/.test(value)) return false;
+  return value.replace(/\s+/g, "").length >= 4;
 }
 
 function gbOcrParseText(text) {
@@ -2489,265 +2412,87 @@ function gbOcrParseText(text) {
     .filter(line => line && !gbOcrIsNoise(line));
 
   const rows = [];
-  let current = null;
+  let currentName = "";
+  let pendingVariant = "";
+  let pendingRaw = "";
+  let pendingSpec = "";
 
-  function pushCurrent() {
-    if (!current || !current.nameText) return;
-    const best = gbOcrBestItem(`${current.nameText} ${current.specText || ""}`);
+  function pushRow(nameText, specText, rawText, qty, cost) {
+    const combined = [nameText, specText].filter(Boolean).join(" ");
+    const best = gbOcrBestItem(combined);
     rows.push({
-      rawText: current.rawText || current.nameText,
-      nameText: current.nameText,
-      specText: current.specText || "",
-      qty: current.qty || "",
-      cost: current.cost || "",
+      rawText: rawText || combined,
+      nameText: nameText || combined,
+      specText: specText || "",
+      qty: qty || "",
+      cost: cost || "",
       itemId: best?.item?.id || "",
       confidence: best ? `可能符合 ${best.score}` : "需手動選擇"
     });
-    current = null;
   }
 
   lines.forEach(line => {
     const price = gbOcrExtractPrice(line);
     const qty = gbOcrExtractQty(line);
-    const noMoneyQtyText = gbOcrCleanLine(
+    const specValue = gbOcrExtractSpecValue(line);
+
+    const lineNoMoneyQty = gbOcrCleanLine(
       line.replace(/[¥￥]\s*[0-9]+(?:\.[0-9]+)?/g, "")
           .replace(/(?:NT\$|NT|台幣|新台幣|\$)\s*[0-9]+(?:\.[0-9]+)?/ig, "")
           .replace(/[×xX]\s*[0-9]+/g, "")
     );
 
-    const isSpec = /颜色|顏色|规格|規格|材质|材質|尺寸|內徑|内径|外径|外徑|高度|長|宽|寬/.test(line);
-    const hasWords = /[\u4e00-\u9fa5A-Za-z]/.test(noMoneyQtyText);
-    const likelyName = hasWords && !isSpec && noMoneyQtyText.length >= 3;
+    if (gbOcrLooksLikeNameLine(lineNoMoneyQty) && price === "" && qty === "") {
+      currentName = lineNoMoneyQty;
+      pendingVariant = "";
+      pendingRaw = line;
+      pendingSpec = "";
+      return;
+    }
 
-    if (likelyName && (price !== "" || qty !== "")) {
-      rows.push({
-        rawText: line,
-        nameText: noMoneyQtyText,
-        specText: "",
+    if (specValue) {
+      pendingVariant = specValue;
+      pendingSpec = line;
+      pendingRaw = [pendingRaw, line].filter(Boolean).join(" / ");
+    }
+
+    if ((price !== "" || qty !== "") && currentName) {
+      const specText = pendingVariant ? `款式：${pendingVariant}` : pendingSpec;
+      pushRow(
+        currentName,
+        specText,
+        [pendingRaw, line].filter(Boolean).join(" / "),
         qty,
-        cost: price,
-        itemId: gbOcrBestItem(noMoneyQtyText)?.item?.id || "",
-        confidence: gbOcrBestItem(noMoneyQtyText) ? "可能符合" : "需手動選擇"
-      });
-      current = null;
+        price
+      );
+      pendingVariant = "";
+      pendingRaw = "";
+      pendingSpec = "";
       return;
     }
 
-    if (likelyName) {
-      if (current && (current.qty || current.cost)) pushCurrent();
-      current = { nameText: noMoneyQtyText, rawText: line, specText: "", qty: "", cost: "" };
+    if (gbOcrLooksLikeNameLine(lineNoMoneyQty) && (price !== "" || qty !== "")) {
+      pushRow(lineNoMoneyQty, "", line, qty, price);
       return;
     }
-
-    if (!current && (price !== "" || qty !== "")) {
-      current = { nameText: noMoneyQtyText || line, rawText: line, specText: "", qty: "", cost: "" };
-    }
-
-    if (current) {
-      current.rawText = [current.rawText, line].filter(Boolean).join(" / ");
-      if (isSpec) current.specText = [current.specText, line].filter(Boolean).join(" ");
-      if (price !== "") current.cost = price;
-      if (qty !== "") current.qty = qty;
-      if (current.qty && current.cost) pushCurrent();
-    }
   });
 
-  pushCurrent();
-
-  // 合併明顯空白資料，並移除無數量且無價格的雜訊
-  return rows
-    .filter(row => row.nameText && (row.qty || row.cost || row.itemId))
-    .slice(0, 30);
-}
-
-function gbOcrRenderRows(rows) {
-  const list = document.getElementById("ocrResultList");
-  if (!list) return;
-
-  gbOcrRows = rows || [];
-
-  if (!gbOcrRows.length) {
-    list.innerHTML = "尚無辨識結果，請確認圖片清晰，或手動修正辨識文字後再解析。";
-    return;
-  }
-
-  const itemOptions = (data.items || [])
-    .filter(item => !item.disabled)
-    .map(item => `<option value="${item.id}">${gbSafeText(item.name)}</option>`)
-    .join("");
-
-  list.innerHTML = gbOcrRows.map((row, index) => `
-    <div class="ocr-row" data-index="${index}">
-      <div class="field">
-        <label>辨識品名</label>
-        <input class="ocr-name" value="${gbSafeText(row.nameText)}" />
-      </div>
-      <div class="field">
-        <label>對應內部品項 <span class="ocr-confidence">${gbSafeText(row.confidence || "需確認")}</span></label>
-        <select class="ocr-item">
-          <option value="">請選擇品項</option>
-          ${itemOptions}
-        </select>
-      </div>
-      <div class="field">
-        <label>數量</label>
-        <input class="ocr-qty" type="number" min="0" value="${gbSafeText(row.qty)}" />
-      </div>
-      <div class="field">
-        <label>截圖單價</label>
-        <input class="ocr-cost" type="number" min="0" step="0.01" value="${gbSafeText(row.cost)}" />
-      </div>
-      <div class="field">
-        <label>規格/備註</label>
-        <input class="ocr-note" value="${gbSafeText(row.specText)}" />
-      </div>
-      <div class="currency-note">成本換算：${gbOcrFormatMoney(row.cost || 0)}</div>
-      <div class="raw-text">原始文字：${gbSafeText(row.rawText || "")}</div>
-    </div>
-  `).join("");
-
-  list.querySelectorAll(".ocr-row").forEach((element, index) => {
-    const select = element.querySelector(".ocr-item");
-    if (select && gbOcrRows[index].itemId) select.value = gbOcrRows[index].itemId;
-  });
-}
-
-async function runOcrRecognition() {
-  gbOcrEnsureStyles();
-  gbOcrDefaultDate();
-
-  const input = document.getElementById("ocrImageInput");
-  const output = document.getElementById("ocrTextOutput");
-  const status = document.getElementById("ocrStatus");
-
-  if (!input?.files?.[0]) {
-    alert("請先選擇圖片。");
-    return;
-  }
-
-  if (typeof Tesseract === "undefined") {
-    alert("OCR 模組尚未載入完成，請重新整理後再試一次。");
-    return;
-  }
-
-  status.textContent = "辨識中，請稍候…第一次使用可能需要 10～30 秒。";
-
-  try {
-    const result = await Tesseract.recognize(input.files[0], "chi_sim+chi_tra+eng", {
-      logger: message => {
-        if (message.status === "recognizing text") {
-          status.textContent = `辨識中… ${Math.round((message.progress || 0) * 100)}%`;
-        }
+  if (!rows.length) {
+    let fallbackName = "";
+    lines.forEach(line => {
+      const price = gbOcrExtractPrice(line);
+      const qty = gbOcrExtractQty(line);
+      const specValue = gbOcrExtractSpecValue(line);
+      if (gbOcrLooksLikeNameLine(line) && !specValue) fallbackName = line;
+      if (fallbackName && specValue && (price !== "" || qty !== "")) {
+        pushRow(fallbackName, `款式：${specValue}`, line, qty, price);
       }
     });
-
-    const text = result?.data?.text || "";
-    output.value = text;
-
-    const currencySelect = document.getElementById("ocrCurrencyInput");
-    if (currencySelect && currencySelect.value === "AUTO") {
-      const detected = gbOcrDetectCurrency(text);
-      status.textContent = `辨識完成，已判斷幣別：${detected === "CNY" ? "人民幣" : "台幣"}。請檢查結果。`;
-    } else {
-      status.textContent = "辨識完成，請檢查結果。";
-    }
-
-    gbOcrRenderRows(gbOcrParseText(text));
-  } catch (error) {
-    console.error(error);
-    status.textContent = "辨識失敗。請換較清楚的截圖，或手動貼上文字後按解析。";
-  }
-}
-
-function parseOcrTextFromTextarea() {
-  const text = document.getElementById("ocrTextOutput")?.value || "";
-  gbOcrRenderRows(gbOcrParseText(text));
-}
-
-function previewOcrImage() {
-  const input = document.getElementById("ocrImageInput");
-  const preview = document.getElementById("ocrImagePreview");
-  if (!input?.files?.[0] || !preview) return;
-
-  const url = URL.createObjectURL(input.files[0]);
-  preview.innerHTML = `<img src="${url}" alt="OCR 預覽圖" />`;
-
-  const source = document.getElementById("ocrSourceInput");
-  if (source && !source.value.trim()) source.value = "1688";
-}
-
-function clearOcrAssistant() {
-  const image = document.getElementById("ocrImageInput");
-  const preview = document.getElementById("ocrImagePreview");
-  const output = document.getElementById("ocrTextOutput");
-  const list = document.getElementById("ocrResultList");
-  const status = document.getElementById("ocrStatus");
-
-  if (image) image.value = "";
-  if (preview) preview.innerHTML = "";
-  if (output) output.value = "";
-  if (list) list.innerHTML = "尚無辨識結果。";
-  if (status) status.textContent = "尚未辨識。";
-  gbOcrRows = [];
-}
-
-function confirmOcrOrders() {
-  const list = document.getElementById("ocrResultList");
-  if (!list) return;
-
-  const source = document.getElementById("ocrSourceInput")?.value.trim() || "OCR辨識";
-  const date = document.getElementById("ocrDateInput")?.value || new Date().toISOString().slice(0, 10);
-  const rows = [...list.querySelectorAll(".ocr-row")];
-
-  let added = 0;
-
-  rows.forEach(row => {
-    const itemId = row.querySelector(".ocr-item")?.value || "";
-    const qty = Number(row.querySelector(".ocr-qty")?.value || 0);
-    const rawCost = Number(row.querySelector(".ocr-cost")?.value || 0);
-    const cost = gbOcrToTwd(rawCost);
-    const note = row.querySelector(".ocr-note")?.value || "";
-    const rawName = row.querySelector(".ocr-name")?.value || "";
-
-    if (!itemId || !qty) return;
-
-    const item = data.items.find(item => item.id === itemId);
-    if (!item) return;
-
-    const order = {
-      id: `O${Date.now()}${Math.floor(Math.random() * 1000)}`,
-      date,
-      itemId,
-      qty,
-      received: 0,
-      cost,
-      source,
-      person: getCurrentUserLabel ? getCurrentUserLabel() : "",
-      status: "在途",
-      note: [
-        rawName,
-        note,
-        gbOcrCurrency() === "CNY"
-          ? `原始人民幣 ¥${rawCost}，匯率 ${gbOcrRate()}，已換算台幣 NT$${cost}`
-          : `原始台幣 NT$${rawCost}`,
-        "OCR建立"
-      ].filter(Boolean).join("｜")
-    };
-
-    data.orders.unshift(order);
-    lastCreatedOrderId = order.id;
-    added += 1;
-  });
-
-  if (!added) {
-    alert("沒有可加入的品項。請確認已選擇內部品項並填入數量。");
-    return;
   }
 
-  saveData();
-  renderAll();
-  switchTab("incoming");
-  alert(`已加入 ${added} 筆在途商品。`);
+  return rows
+    .filter(row => row.nameText && (row.qty || row.cost || row.specText || row.itemId))
+    .slice(0, 30);
 }
 
 function bindOcrAssistant() {
@@ -2762,60 +2507,41 @@ function bindOcrAssistant() {
   const currency = document.getElementById("ocrCurrencyInput");
   const rate = document.getElementById("ocrExchangeRateInput");
 
-  if (imageInput && imageInput.dataset.bound !== "true") {
+  if (imageInput && imageInput.dataset.boundV11 !== "true") {
     imageInput.addEventListener("change", previewOcrImage);
-    imageInput.dataset.bound = "true";
+    imageInput.dataset.boundV11 = "true";
   }
-  if (runBtn && runBtn.dataset.bound !== "true") {
+  if (runBtn && runBtn.dataset.boundV11 !== "true") {
     runBtn.addEventListener("click", runOcrRecognition);
-    runBtn.dataset.bound = "true";
+    runBtn.dataset.boundV11 = "true";
   }
-  if (parseBtn && parseBtn.dataset.bound !== "true") {
-    parseBtn.addEventListener("click", parseOcrTextFromTextarea);
-    parseBtn.dataset.bound = "true";
+  if (parseBtn && parseBtn.dataset.boundV11 !== "true") {
+    parseBtn.addEventListener("click", event => {
+      event.preventDefault();
+      parseOcrTextFromTextarea();
+    });
+    parseBtn.dataset.boundV11 = "true";
   }
-  if (clearBtn && clearBtn.dataset.bound !== "true") {
+  if (clearBtn && clearBtn.dataset.boundV11 !== "true") {
     clearBtn.addEventListener("click", clearOcrAssistant);
-    clearBtn.dataset.bound = "true";
+    clearBtn.dataset.boundV11 = "true";
   }
-  if (confirmBtn && confirmBtn.dataset.bound !== "true") {
+  if (confirmBtn && confirmBtn.dataset.boundV11 !== "true") {
     confirmBtn.addEventListener("click", confirmOcrOrders);
-    confirmBtn.dataset.bound = "true";
+    confirmBtn.dataset.boundV11 = "true";
   }
+
   [currency, rate].forEach(el => {
-    if (el && el.dataset.ocrRefreshBound !== "true") {
+    if (el && el.dataset.ocrRefreshBoundV11 !== "true") {
       el.addEventListener("change", () => gbOcrRenderRows(gbOcrRows));
-      el.dataset.ocrRefreshBound = "true";
+      el.dataset.ocrRefreshBoundV11 = "true";
     }
   });
 }
 
-// 強化分頁切換，避免舊 patch 導致全部內容被隱藏
-const gbOriginalSwitchTab = window.switchTab || switchTab;
-switchTab = function(tab) {
-  currentTab = tab;
-  document.querySelectorAll(".tab").forEach(button => {
-    button.classList.toggle("active", button.dataset.tab === tab);
-  });
-  document.querySelectorAll(".tab-panel").forEach(panel => {
-    panel.classList.toggle("hidden", panel.id !== tab);
-  });
-  renderAll();
-};
-
-function gbDiagnostic() {
-  return {
-    version: window.GB_VERSION,
-    currentTab,
-    hasOcrTab: !!document.querySelector('[data-tab="ocr"]'),
-    hasOcrPanel: !!document.getElementById("ocr"),
-    firebaseReady: !!window.GB_FIREBASE?.ready,
-    authReady: !!window.GB_AUTH?.ready,
-    role: window.GB_AUTH?.role,
-    user: window.GB_AUTH?.user
-  };
-}
-window.gbDiagnostic = gbDiagnostic;
-window.runOcrRecognition = runOcrRecognition;
-window.parseOcrTextToRows = gbOcrParseText;
-window.confirmOcrOrders = confirmOcrOrders;
+document.addEventListener("click", event => {
+  if (event.target && event.target.id === "parseOcrTextBtn") {
+    event.preventDefault();
+    parseOcrTextFromTextarea();
+  }
+}, true);
