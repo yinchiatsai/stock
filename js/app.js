@@ -2980,3 +2980,200 @@ function gbDiagnostic() {
 }
 window.gbDiagnostic = gbDiagnostic;
 window.gbOcrBindButtonsHard = gbOcrBindButtonsHard;
+
+
+
+/* GoldenBird Inventory v1.4：OCR 寬鬆解析與商品對應補強 */
+window.GB_VERSION = "goldenbird-inventory-v1.4-ocr-flex-parser";
+
+function gbOcrIsLikelyProductName(line) {
+  const value = String(line || "").trim();
+  if (!value) return false;
+  if (typeof gbOcrIsNoise === "function" && gbOcrIsNoise(value)) return false;
+  if (/^(颜色|顏色|規格|规格|材质|材質|尺寸|含運費|含运费|總實付|总实付)/.test(value)) return false;
+  if (/[¥￥]|NT\$|台幣|新台幣|×|x\s*\d/i.test(value)) return false;
+  if (!/[\u4e00-\u9fa5A-Za-z]/.test(value)) return false;
+  return value.replace(/\s+/g, "").length >= 4;
+}
+
+function gbOcrIsSpecLine(line) {
+  return /颜色|顏色|規格|规格|款式|材质|材質|尺寸|內徑|内径|外径|外徑|高度|長|宽|寬|笔芯|筆芯|P900|噴砂|喷砂/.test(String(line || ""));
+}
+
+function gbOcrPushBlock(block, rows) {
+  if (!block || !block.nameText) return;
+
+  const combined = [block.nameText, block.specText].filter(Boolean).join(" ");
+  const best = typeof gbOcrBestItem === "function" ? gbOcrBestItem(combined) : null;
+
+  rows.push({
+    rawText: block.rawText || combined,
+    nameText: block.nameText,
+    specText: block.specText || "",
+    qty: block.qty || "",
+    cost: block.cost || "",
+    itemId: best?.item?.id || "",
+    confidence: best ? `可能符合 ${best.score || ""}` : "需手動選擇"
+  });
+}
+
+function gbOcrParseText(text) {
+  const clean = typeof gbOcrCleanLine === "function" ? gbOcrCleanLine : (line => String(line || "").trim());
+  const isNoise = typeof gbOcrIsNoise === "function" ? gbOcrIsNoise : (() => false);
+
+  const lines = String(text || "")
+    .split(/\n+/)
+    .map(clean)
+    .filter(line => line && !isNoise(line));
+
+  const rows = [];
+  let block = null;
+
+  function closeBlockIfUseful() {
+    if (!block) return;
+    if (block.qty || block.cost || block.specText) gbOcrPushBlock(block, rows);
+    block = null;
+  }
+
+  lines.forEach(line => {
+    const price = typeof gbOcrExtractPrice === "function" ? gbOcrExtractPrice(line) : "";
+    const qty = typeof gbOcrExtractQty === "function" ? gbOcrExtractQty(line) : "";
+    const specValue = typeof gbOcrExtractSpecValue === "function" ? gbOcrExtractSpecValue(line) : "";
+    const hasPriceOrQty = price !== "" || qty !== "";
+
+    const lineWithoutNums = clean(
+      line.replace(/[¥￥]\s*[0-9]+(?:\.[0-9]+)?/g, "")
+          .replace(/(?:NT\$|NT|台幣|新台幣|\$)\s*[0-9]+(?:\.[0-9]+)?/ig, "")
+          .replace(/[×xX]\s*[0-9]+/g, "")
+    );
+
+    // 新品名出現，且上一個 block 已有價格或數量，就先結束上一筆
+    if (gbOcrIsLikelyProductName(lineWithoutNums) && !hasPriceOrQty && !gbOcrIsSpecLine(lineWithoutNums)) {
+      closeBlockIfUseful();
+      block = {
+        nameText: lineWithoutNums,
+        specText: "",
+        qty: "",
+        cost: "",
+        rawText: line
+      };
+      return;
+    }
+
+    // 還沒有品名，但這行看起來像品名＋價格/數量，直接建立 block
+    if (gbOcrIsLikelyProductName(lineWithoutNums) && hasPriceOrQty) {
+      closeBlockIfUseful();
+      block = {
+        nameText: lineWithoutNums,
+        specText: "",
+        qty: qty || "",
+        cost: price || "",
+        rawText: line
+      };
+      if (block.qty && block.cost) {
+        closeBlockIfUseful();
+      }
+      return;
+    }
+
+    // 規格行：加入目前 block；若還沒有 block，就當作臨時品名
+    if (gbOcrIsSpecLine(line) || specValue) {
+      if (!block) {
+        block = {
+          nameText: specValue || line,
+          specText: line,
+          qty: "",
+          cost: "",
+          rawText: line
+        };
+      } else {
+        block.specText = [block.specText, line].filter(Boolean).join(" ");
+        block.rawText = [block.rawText, line].filter(Boolean).join(" / ");
+      }
+
+      if (price !== "") block.cost = price;
+      if (qty !== "") block.qty = qty;
+      if (block.qty && block.cost) closeBlockIfUseful();
+      return;
+    }
+
+    // 價格或數量行：補進目前 block
+    if (hasPriceOrQty) {
+      if (!block) {
+        block = {
+          nameText: lineWithoutNums || "未辨識品名",
+          specText: "",
+          qty: "",
+          cost: "",
+          rawText: line
+        };
+      } else {
+        block.rawText = [block.rawText, line].filter(Boolean).join(" / ");
+      }
+
+      if (price !== "") block.cost = price;
+      if (qty !== "") block.qty = qty;
+
+      if (block.qty && block.cost) closeBlockIfUseful();
+    }
+  });
+
+  closeBlockIfUseful();
+
+  // 第二層保底：如果完全解析不到，至少用價格/數量附近建立可手動選品項的列
+  if (!rows.length) {
+    const priceLines = lines
+      .map((line, index) => ({ line, index, price: typeof gbOcrExtractPrice === "function" ? gbOcrExtractPrice(line) : "", qty: typeof gbOcrExtractQty === "function" ? gbOcrExtractQty(line) : "" }))
+      .filter(row => row.price !== "" || row.qty !== "");
+
+    priceLines.forEach(row => {
+      const before = lines.slice(Math.max(0, row.index - 4), row.index).reverse();
+      const name = before.find(gbOcrIsLikelyProductName) || before.find(line => /[\u4e00-\u9fa5A-Za-z]/.test(line)) || "未辨識品名";
+      const spec = before.filter(gbOcrIsSpecLine).join(" ");
+      gbOcrPushBlock({
+        nameText: name,
+        specText: spec,
+        qty: row.qty,
+        cost: row.price,
+        rawText: [...before.reverse(), row.line].join(" / ")
+      }, rows);
+    });
+  }
+
+  return rows.slice(0, 30);
+}
+
+function gbOcrAutoParseAndRender(text) {
+  const rows = gbOcrParseText(text);
+  if (typeof gbOcrRenderRows === "function") {
+    gbOcrRenderRows(rows);
+  } else if (typeof renderOcrRows === "function") {
+    renderOcrRows(rows);
+  }
+
+  const status = document.getElementById("ocrStatus");
+  if (status) {
+    status.textContent = rows.length
+      ? `辨識完成，已產生 ${rows.length} 筆候選結果。請確認對應內部品項。`
+      : "辨識完成，但沒有解析出品項。請查看下方辨識文字，或新增商品對應關鍵字。";
+  }
+}
+
+function gbOcrParseFromButton() {
+  const text = document.getElementById("ocrTextOutput")?.value || "";
+  gbOcrAutoParseAndRender(text);
+}
+
+function gbDiagnostic() {
+  return {
+    version: window.GB_VERSION,
+    hasOcrPanel: !!document.getElementById("ocr"),
+    hasParseBtn: !!document.getElementById("parseOcrTextBtn"),
+    ocrTextLength: document.getElementById("ocrTextOutput")?.value?.length || 0,
+    hasTesseract: typeof Tesseract !== "undefined",
+    firebaseReady: !!window.GB_FIREBASE?.ready,
+    authReady: !!window.GB_AUTH?.ready
+  };
+}
+window.gbDiagnostic = gbDiagnostic;
+window.parseOcrTextToRows = gbOcrParseText;
