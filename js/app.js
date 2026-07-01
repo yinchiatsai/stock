@@ -2838,3 +2838,145 @@ function gbDiagnostic() {
 }
 window.gbDiagnostic = gbDiagnostic;
 window.gbOcrBindButtonsHard = gbOcrBindButtonsHard;
+
+
+
+/* GoldenBird Inventory v1.3：OCR 自動解析流程 */
+window.GB_VERSION = "goldenbird-inventory-v1.3-ocr-auto-parse";
+
+function gbOcrAutoParseAndRender(text) {
+  const rows = typeof gbOcrParseText === "function" ? gbOcrParseText(text) : [];
+  if (typeof gbOcrRenderRows === "function") {
+    gbOcrRenderRows(rows);
+  } else if (typeof renderOcrRows === "function") {
+    renderOcrRows(rows);
+  }
+  const status = document.getElementById("ocrStatus");
+  if (status) {
+    status.textContent = rows.length
+      ? `辨識完成，已自動產生 ${rows.length} 筆結果。請確認品項、數量與成本。`
+      : "辨識完成，但沒有解析出品項。請查看下方辨識文字，或新增商品對應關鍵字。";
+  }
+}
+
+async function runOcrRecognition() {
+  gbOcrEnsureStyles();
+  if (typeof gbOcrDefaultDate === "function") gbOcrDefaultDate();
+
+  const input = document.getElementById("ocrImageInput");
+  const output = document.getElementById("ocrTextOutput");
+  const status = document.getElementById("ocrStatus");
+
+  if (!input?.files?.[0]) {
+    alert("請先選擇圖片。");
+    return;
+  }
+
+  if (typeof Tesseract === "undefined") {
+    alert("OCR 模組尚未載入完成，請重新整理後再試一次。");
+    return;
+  }
+
+  if (status) status.textContent = "辨識中，請稍候…第一次使用可能需要 10～30 秒。";
+
+  try {
+    const result = await Tesseract.recognize(input.files[0], "chi_sim+chi_tra+eng", {
+      logger: message => {
+        if (message.status === "recognizing text" && status) {
+          status.textContent = `辨識中… ${Math.round((message.progress || 0) * 100)}%`;
+        }
+      }
+    });
+
+    const text = result?.data?.text || "";
+    if (output) output.value = text;
+
+    gbOcrAutoParseAndRender(text);
+  } catch (error) {
+    console.error(error);
+    if (status) status.textContent = "辨識失敗。請換較清楚的截圖，或手動貼上文字後按重新解析。";
+  }
+}
+
+function gbOcrParseFromButton() {
+  const text = document.getElementById("ocrTextOutput")?.value || "";
+  gbOcrAutoParseAndRender(text);
+}
+
+function gbOcrBindButtonsHard() {
+  if (typeof gbOcrEnsureStyles === "function") gbOcrEnsureStyles();
+  if (typeof gbOcrDefaultDate === "function") gbOcrDefaultDate();
+
+  const runBtn = document.getElementById("runOcrBtn");
+  const parseBtn = document.getElementById("parseOcrTextBtn");
+  const clearBtn = document.getElementById("clearOcrBtn");
+  const confirmBtn = document.getElementById("confirmOcrOrdersBtn");
+  const imageInput = document.getElementById("ocrImageInput");
+
+  if (runBtn) {
+    runBtn.onclick = event => {
+      event.preventDefault();
+      runOcrRecognition();
+    };
+  }
+
+  if (parseBtn) {
+    parseBtn.onclick = event => {
+      event.preventDefault();
+      gbOcrParseFromButton();
+    };
+  }
+
+  if (clearBtn && typeof clearOcrAssistant === "function") {
+    clearBtn.onclick = event => {
+      event.preventDefault();
+      clearOcrAssistant();
+    };
+  }
+
+  if (confirmBtn && typeof confirmOcrOrders === "function") {
+    confirmBtn.onclick = event => {
+      event.preventDefault();
+      confirmOcrOrders();
+    };
+  }
+
+  if (imageInput && typeof previewOcrImage === "function") {
+    imageInput.onchange = previewOcrImage;
+  }
+}
+
+bindOcrAssistant = function() {
+  gbOcrBindButtonsHard();
+};
+
+document.addEventListener("DOMContentLoaded", () => {
+  setTimeout(gbOcrBindButtonsHard, 300);
+  setTimeout(gbOcrBindButtonsHard, 1200);
+});
+
+document.addEventListener("click", event => {
+  const id = event.target?.id;
+  if (id === "runOcrBtn") {
+    event.preventDefault();
+    runOcrRecognition();
+  }
+  if (id === "parseOcrTextBtn") {
+    event.preventDefault();
+    gbOcrParseFromButton();
+  }
+}, true);
+
+function gbDiagnostic() {
+  return {
+    version: window.GB_VERSION,
+    hasOcrPanel: !!document.getElementById("ocr"),
+    hasRunBtn: !!document.getElementById("runOcrBtn"),
+    hasParseBtn: !!document.getElementById("parseOcrTextBtn"),
+    hasTesseract: typeof Tesseract !== "undefined",
+    firebaseReady: !!window.GB_FIREBASE?.ready,
+    authReady: !!window.GB_AUTH?.ready
+  };
+}
+window.gbDiagnostic = gbDiagnostic;
+window.gbOcrBindButtonsHard = gbOcrBindButtonsHard;
