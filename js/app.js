@@ -2545,3 +2545,296 @@ document.addEventListener("click", event => {
     parseOcrTextFromTextarea();
   }
 }, true);
+
+
+
+/* GoldenBird Inventory v1.2：OCR 按鈕穩定修正＋移除後台截圖上傳 */
+window.GB_VERSION = "goldenbird-inventory-v1.2-ocr-button-fix";
+
+function gbOcrEnsureStyles() {
+  let style = document.getElementById("gbOcrStyles");
+  if (!style) {
+    style = document.createElement("style");
+    style.id = "gbOcrStyles";
+    document.head.appendChild(style);
+  }
+  style.textContent = `
+    #ocr:not(.hidden){ display:block; }
+    #ocr .card{ overflow:visible; }
+    .ocr-preview{
+      display:flex;
+      justify-content:flex-start;
+      align-items:flex-start;
+      margin-top:12px;
+    }
+    .ocr-preview img{
+      width:min(360px, 100%);
+      max-height:360px;
+      object-fit:contain;
+      border-radius:16px;
+      border:1px solid var(--line);
+      background:#fff;
+      box-shadow:0 8px 24px rgba(0,0,0,.06);
+    }
+    #ocrTextOutput{
+      width:100%;
+      min-height:300px;
+      font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      line-height:1.55;
+      white-space:pre-wrap;
+      resize:vertical;
+      box-sizing:border-box;
+    }
+    .ocr-result-list{
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+    }
+    .ocr-row{
+      display:grid;
+      grid-template-columns:minmax(220px, 1.35fr) minmax(220px, 1.25fr) minmax(90px, .55fr) minmax(110px, .65fr) minmax(180px, .9fr);
+      gap:10px;
+      align-items:end;
+      border:1px solid var(--line);
+      border-radius:16px;
+      padding:12px;
+      background:#fff;
+    }
+    .ocr-row .field{ margin:0; }
+    .ocr-row .raw-text{
+      grid-column:1/-1;
+      color:var(--muted);
+      font-size:13px;
+      line-height:1.5;
+      word-break:break-word;
+    }
+    .ocr-row .currency-note{
+      grid-column:1/-1;
+      color:#536d75;
+      font-size:13px;
+      background:#f6faf9;
+      border-radius:12px;
+      padding:8px 10px;
+    }
+    .ocr-confidence{
+      display:inline-flex;
+      border-radius:999px;
+      padding:4px 10px;
+      background:#eef7f2;
+      color:#2f7a4f;
+      font-size:12px;
+      margin-left:6px;
+    }
+    @media (min-width: 980px){
+      #ocr .card textarea#ocrTextOutput{
+        min-height:380px;
+        font-size:15px;
+      }
+      #ocr .ocr-preview img{
+        width:320px;
+        max-height:320px;
+      }
+    }
+    @media (max-width: 760px){
+      .ocr-preview img{
+        width:100%;
+        max-height:420px;
+      }
+      #ocrTextOutput{
+        min-height:240px;
+      }
+      .ocr-row{ grid-template-columns:1fr; }
+      .ocr-row .raw-text,.ocr-row .currency-note{ grid-column:auto; }
+    }
+  `;
+}
+
+function gbOcrExtractSpecValue(line) {
+  const value = String(line || "");
+  const match = value.match(/(?:颜色|顏色|款式|規格|规格)[:：]\s*([^\s\/|]+)/);
+  return match ? match[1].trim() : "";
+}
+
+function gbOcrLooksLikeVariantLine(line) {
+  return /(?:颜色|顏色|款式)[:：]/.test(String(line || ""));
+}
+
+function gbOcrLooksLikeNameLine(line) {
+  const value = String(line || "");
+  if (!/[\u4e00-\u9fa5A-Za-z]/.test(value)) return false;
+  if (typeof gbOcrIsNoise === "function" && gbOcrIsNoise(value)) return false;
+  if (gbOcrLooksLikeVariantLine(value)) return false;
+  if (/^[¥￥NT\$\d×xX\s\.]+$/.test(value)) return false;
+  return value.replace(/\s+/g, "").length >= 4;
+}
+
+function gbOcrParseText(text) {
+  const clean = typeof gbOcrCleanLine === "function" ? gbOcrCleanLine : (line => String(line || "").trim());
+  const isNoise = typeof gbOcrIsNoise === "function" ? gbOcrIsNoise : (() => false);
+
+  const lines = String(text || "")
+    .split(/\n+/)
+    .map(clean)
+    .filter(line => line && !isNoise(line));
+
+  const rows = [];
+  let currentName = "";
+  let pendingVariant = "";
+  let pendingRaw = "";
+  let pendingSpec = "";
+
+  function pushRow(nameText, specText, rawText, qty, cost) {
+    const combined = [nameText, specText].filter(Boolean).join(" ");
+    const best = typeof gbOcrBestItem === "function" ? gbOcrBestItem(combined) : null;
+    rows.push({
+      rawText: rawText || combined,
+      nameText: nameText || combined,
+      specText: specText || "",
+      qty: qty || "",
+      cost: cost || "",
+      itemId: best?.item?.id || "",
+      confidence: best ? `可能符合 ${best.score || ""}` : "需手動選擇"
+    });
+  }
+
+  lines.forEach(line => {
+    const price = typeof gbOcrExtractPrice === "function" ? gbOcrExtractPrice(line) : "";
+    const qty = typeof gbOcrExtractQty === "function" ? gbOcrExtractQty(line) : "";
+    const specValue = gbOcrExtractSpecValue(line);
+
+    const lineNoMoneyQty = clean(
+      line.replace(/[¥￥]\s*[0-9]+(?:\.[0-9]+)?/g, "")
+          .replace(/(?:NT\$|NT|台幣|新台幣|\$)\s*[0-9]+(?:\.[0-9]+)?/ig, "")
+          .replace(/[×xX]\s*[0-9]+/g, "")
+    );
+
+    if (gbOcrLooksLikeNameLine(lineNoMoneyQty) && price === "" && qty === "") {
+      currentName = lineNoMoneyQty;
+      pendingVariant = "";
+      pendingRaw = line;
+      pendingSpec = "";
+      return;
+    }
+
+    if (specValue) {
+      pendingVariant = specValue;
+      pendingSpec = line;
+      pendingRaw = [pendingRaw, line].filter(Boolean).join(" / ");
+    }
+
+    if ((price !== "" || qty !== "") && currentName) {
+      const specText = pendingVariant ? `款式：${pendingVariant}` : pendingSpec;
+      pushRow(currentName, specText, [pendingRaw, line].filter(Boolean).join(" / "), qty, price);
+      pendingVariant = "";
+      pendingRaw = "";
+      pendingSpec = "";
+      return;
+    }
+
+    if (gbOcrLooksLikeNameLine(lineNoMoneyQty) && (price !== "" || qty !== "")) {
+      pushRow(lineNoMoneyQty, "", line, qty, price);
+    }
+  });
+
+  return rows
+    .filter(row => row.nameText && (row.qty || row.cost || row.specText || row.itemId))
+    .slice(0, 30);
+}
+
+function gbOcrRunFromButton() {
+  const status = document.getElementById("ocrStatus");
+  if (status) status.textContent = "準備辨識中…";
+  if (typeof runOcrRecognition === "function") {
+    return runOcrRecognition();
+  }
+  alert("OCR 功能尚未載入完成，請重新整理後再試一次。");
+}
+
+function gbOcrParseFromButton() {
+  const output = document.getElementById("ocrTextOutput");
+  const text = output?.value || "";
+  const rows = gbOcrParseText(text);
+  if (typeof gbOcrRenderRows === "function") {
+    gbOcrRenderRows(rows);
+  } else if (typeof renderOcrRows === "function") {
+    renderOcrRows(rows);
+  } else {
+    const list = document.getElementById("ocrResultList");
+    if (list) list.textContent = "解析完成，但結果渲染模組尚未載入。";
+  }
+}
+
+function gbOcrBindButtonsHard() {
+  gbOcrEnsureStyles();
+
+  const runBtn = document.getElementById("runOcrBtn");
+  const parseBtn = document.getElementById("parseOcrTextBtn");
+  const clearBtn = document.getElementById("clearOcrBtn");
+  const confirmBtn = document.getElementById("confirmOcrOrdersBtn");
+  const imageInput = document.getElementById("ocrImageInput");
+
+  if (runBtn) runBtn.onclick = event => {
+    event.preventDefault();
+    gbOcrRunFromButton();
+  };
+
+  if (parseBtn) parseBtn.onclick = event => {
+    event.preventDefault();
+    gbOcrParseFromButton();
+  };
+
+  if (clearBtn && typeof clearOcrAssistant === "function") {
+    clearBtn.onclick = event => {
+      event.preventDefault();
+      clearOcrAssistant();
+    };
+  }
+
+  if (confirmBtn && typeof confirmOcrOrders === "function") {
+    confirmBtn.onclick = event => {
+      event.preventDefault();
+      confirmOcrOrders();
+    };
+  }
+
+  if (imageInput && typeof previewOcrImage === "function") {
+    imageInput.onchange = previewOcrImage;
+  }
+}
+
+// 覆蓋原本 bind，避免 dataset 已綁定但其實失效
+bindOcrAssistant = function() {
+  if (typeof gbOcrDefaultDate === "function") gbOcrDefaultDate();
+  gbOcrBindButtonsHard();
+};
+
+document.addEventListener("DOMContentLoaded", () => {
+  setTimeout(gbOcrBindButtonsHard, 300);
+  setTimeout(gbOcrBindButtonsHard, 1200);
+});
+
+document.addEventListener("click", event => {
+  const id = event.target?.id;
+  if (id === "runOcrBtn") {
+    event.preventDefault();
+    gbOcrRunFromButton();
+  }
+  if (id === "parseOcrTextBtn") {
+    event.preventDefault();
+    gbOcrParseFromButton();
+  }
+}, true);
+
+function gbDiagnostic() {
+  return {
+    version: window.GB_VERSION,
+    hasOcrPanel: !!document.getElementById("ocr"),
+    hasRunBtn: !!document.getElementById("runOcrBtn"),
+    hasParseBtn: !!document.getElementById("parseOcrTextBtn"),
+    hasTesseract: typeof Tesseract !== "undefined",
+    firebaseReady: !!window.GB_FIREBASE?.ready,
+    authReady: !!window.GB_AUTH?.ready
+  };
+}
+window.gbDiagnostic = gbDiagnostic;
+window.gbOcrBindButtonsHard = gbOcrBindButtonsHard;
