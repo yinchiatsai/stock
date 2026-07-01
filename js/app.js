@@ -2744,3 +2744,229 @@ window.gbDiagnostic = function() {
     currentTab
   };
 };
+
+
+/* GoldenBird Inventory v2.0 Stable｜正式版架構 */
+window.GB_VERSION = "goldenbird-inventory-v2.0-stable";
+
+let historySearchKeyword = "";
+let historyLimitValue = "20";
+
+function ensureV20Styles() {
+  if (document.getElementById("v20Styles")) return;
+  const style = document.createElement("style");
+  style.id = "v20Styles";
+  style.textContent = `
+    [data-tab="ocr"],#ocr,#update,#resetDemoBtn,.mapping-section,#orderScreenshotInput,#screenshotPreview{display:none!important}
+    #adminContent .order-section,#adminContent .admin-section{width:100%;box-sizing:border-box}
+    #adminContent .order-input-grid{display:grid;grid-template-columns:1fr!important;gap:18px;width:100%}
+    #adminContent .order-input-grid>.card{width:100%;box-sizing:border-box}
+    .quick-stock-btn{width:32px!important;height:32px!important;min-width:32px!important;padding:0!important;border-radius:999px!important;font-size:0!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;background:#fff!important;border:1px solid var(--line)!important;box-shadow:0 4px 12px rgba(0,0,0,.06);opacity:.62}
+    .quick-stock-btn::before{content:"✏️";font-size:14px}
+    .inventory-row{position:relative}
+    .inventory-row:hover .quick-stock-btn{opacity:1;background:#f8fbfb!important}
+    .inventory-row.status-good{background:#fff}.inventory-row.status-warn{background:#fffaf0}.inventory-row.status-bad{background:#fff3f0}.inventory-row.status-info{background:#f1f8fb}
+    .history-card{border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:10px;background:#fff}
+    .history-title{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;font-weight:700}
+    .history-meta{color:var(--muted);font-size:13px;margin-top:6px;line-height:1.6}
+    .history-change{font-size:15px;margin-top:8px}
+    .history-arrow{padding:0 6px;color:var(--muted)}
+    @media(min-width:761px){#inventoryGrid .quick-stock-btn{position:absolute;right:14px;bottom:12px}}
+    @media(max-width:760px){
+      #inventoryGrid .inventory-list{display:flex;flex-direction:column;gap:8px}
+      #inventoryGrid .inventory-row.header{display:none!important}
+      #inventoryGrid .inventory-row{display:grid!important;grid-template-columns:1fr auto;grid-template-areas:"name status" "numbers action";gap:6px 8px;padding:9px 11px!important;border-radius:14px;min-height:auto!important}
+      #inventoryGrid .inventory-name{grid-area:name;min-width:0}
+      #inventoryGrid .inventory-name strong{display:block;font-size:15.5px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      #inventoryGrid .meta-tags{display:flex;flex-wrap:nowrap;gap:5px;margin-top:4px;overflow:hidden}
+      #inventoryGrid .meta-tag{font-size:11px;padding:3px 7px;white-space:nowrap;max-width:86px;overflow:hidden;text-overflow:ellipsis}
+      #inventoryGrid .meta-tag:nth-child(n+4){display:none}
+      #inventoryGrid .inventory-row>div:nth-child(5){grid-area:status;align-self:start;justify-self:end}
+      #inventoryGrid .inventory-row>div:nth-child(2),#inventoryGrid .inventory-row>div:nth-child(3),#inventoryGrid .inventory-row>div:nth-child(4),#inventoryGrid .inventory-row>div:nth-child(6){grid-area:numbers}
+      #inventoryGrid .inventory-row>div:nth-child(2){justify-self:start}
+      #inventoryGrid .inventory-row>div:nth-child(3){justify-self:start;margin-left:68px}
+      #inventoryGrid .inventory-row>div:nth-child(4){justify-self:start;margin-left:136px}
+      #inventoryGrid .inventory-row>div:nth-child(6){justify-self:start;margin-left:204px}
+      #inventoryGrid .stock-cell::before{content:"庫 ";color:var(--muted);font-weight:600}
+      #inventoryGrid .incoming-cell::before{content:"途 ";color:var(--muted);font-weight:600}
+      #inventoryGrid .safety-cell::before{content:"安 ";color:var(--muted);font-weight:600}
+      #inventoryGrid .suggest-cell::before{content:"補 ";color:var(--muted);font-weight:600}
+      #inventoryGrid .num-cell,#inventoryGrid .suggest-cell{font-size:13.5px;line-height:1.4}
+      #inventoryGrid .badge{font-size:12px;padding:4px 8px;white-space:nowrap}
+      #inventoryGrid .quick-stock-btn{grid-area:action;justify-self:end;align-self:center;margin:0!important;width:30px!important;height:30px!important;min-width:30px!important}
+    }`;
+  document.head.appendChild(style);
+}
+
+function removeV20UnusedUI(){
+  document.querySelector('[data-tab="ocr"]')?.remove();
+  document.querySelector('[data-tab="update"]')?.remove();
+  document.getElementById("ocr")?.remove();
+  document.getElementById("update")?.remove();
+  document.getElementById("resetDemoBtn")?.remove();
+  document.querySelector(".mapping-section")?.remove();
+  document.getElementById("orderScreenshotInput")?.closest(".card")?.remove();
+  if(currentTab==="ocr"||currentTab==="update") switchTab("overview");
+}
+
+getStatus=function(item){
+  const incoming=getIncomingQty(item.id);
+  const stock=Number(item.stock)||0;
+  const safety=Number(item.safety)||0;
+  if(stock===0 && incoming<=0) return {text:"缺貨",type:"bad"};
+  if(stock<safety && incoming>0) return {text:"已叫貨",type:"info"};
+  if(stock<=safety) return {text:"注意補貨",type:"warn"};
+  return {text:"正常",type:"good"};
+};
+
+renderIncoming=function(){
+  const tbody=document.getElementById("incomingTable");
+  if(!tbody) return;
+  const activeOrders=data.orders.filter(order=>Number(order.qty)-Number(order.received)>0);
+  tbody.innerHTML=activeOrders.map(order=>{
+    const item=getItem(order.itemId);
+    const remain=Math.max(0,Number(order.qty)-Number(order.received));
+    const statusClass=order.status==="部分到貨"?"warn":"info";
+    return `<tr class="${order.id===lastCreatedOrderId?"highlight-row":""}">
+      <td>${order.date||""}</td>
+      <td>${item?item.name:(order.deletedItemName||"已刪除品項")}</td>
+      <td>${order.qty}</td>
+      <td>${order.received}</td>
+      <td>${remain}</td>
+      <td>NT$ ${order.cost||0}</td>
+      <td>${order.person||"-"}</td>
+      <td><span class="badge ${statusClass}">${order.status}</span></td>
+      <td><input class="receive-input" data-id="${order.id}" type="number" min="1" max="${remain}" placeholder="數量" style="width:90px;"></td>
+      <td><button class="small receive-btn" data-id="${order.id}">確認到貨</button></td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="10">目前沒有在途商品</td></tr>`;
+  document.querySelectorAll(".receive-btn").forEach(button=>{
+    button.addEventListener("click",()=>receiveOrder(button.dataset.id));
+  });
+};
+
+function openQuickStockModal(itemId){
+  const item=getItem(itemId); if(!item) return;
+  document.getElementById("quickStockItemId").value=item.id;
+  document.getElementById("quickStockItemText").textContent=item.name;
+  document.getElementById("quickStockOldQty").value=item.stock;
+  document.getElementById("quickStockNewQty").value=item.stock;
+  document.getElementById("quickStockReason").value="盤點更新";
+  const custom=document.getElementById("quickStockCustomReason"); if(custom) custom.value="";
+  openModal("quickStockModal");
+}
+
+function confirmQuickStockUpdate(){
+  const item=getItem(document.getElementById("quickStockItemId").value);
+  const qty=Number(document.getElementById("quickStockNewQty").value);
+  const reasonBase=document.getElementById("quickStockReason").value||"盤點更新";
+  const custom=document.getElementById("quickStockCustomReason")?.value.trim();
+  const reason=custom || reasonBase;
+  if(!item || Number.isNaN(qty) || qty<0){showToast("請輸入正確庫存數量");return;}
+  const oldStock=Number(item.stock)||0;
+  item.stock=qty;
+  addStockHistory(item,oldStock,qty,reason);
+  lastUpdatedItemId=item.id;
+  saveData(); closeModal("quickStockModal"); renderAll();
+  showToast(`${item.name} 已更新為 ${qty}`);
+}
+
+const gbV20RenderInventory=renderInventory;
+renderInventory=function(){
+  gbV20RenderInventory();
+  const role=document.getElementById("roleSelect")?.value||"staff";
+  const canQuickEdit=role==="process"||role==="boss"||role==="qing"||role==="emily";
+  document.querySelectorAll("#inventoryGrid .inventory-row:not(.header)").forEach(row=>{
+    const name=row.querySelector(".inventory-name strong")?.textContent||"";
+    const item=data.items.find(i=>i.name===name && !i.disabled);
+    if(!item) return;
+    row.classList.add(`status-${getStatus(item).type}`);
+    if(canQuickEdit && !row.querySelector(".quick-stock-btn")){
+      const btn=document.createElement("button");
+      btn.type="button"; btn.className="secondary small quick-stock-btn"; btn.title="快速盤點"; btn.setAttribute("aria-label","快速盤點");
+      btn.addEventListener("click",()=>openQuickStockModal(item.id));
+      row.appendChild(btn);
+    }
+  });
+};
+
+createNewItem=function({name,category,safety,dept,note,shared,stock}){
+  if(!name){showToast("請輸入品項名稱");return;}
+  const normalized=String(name).trim().toLowerCase().replace(/\s+/g,"");
+  const exists=data.items.find(item=>!item.disabled && String(item.name).trim().toLowerCase().replace(/\s+/g,"")===normalized);
+  if(exists){showToast(`已存在相同品項：${exists.name}`);return;}
+  const initialStock=Number(stock)||0;
+  const newItem={id:`I${Date.now()}`,name,category,stock:initialStock,safety:Number(safety)||0,dept:dept||category,mode:shared?"共用型":"觀察型",note:note||"",disabled:false,createdAt:Date.now(),lastUpdatedBy:getCurrentUserLabel(),lastUpdatedEmail:getCurrentUserEmail(),lastUpdatedAt:Date.now(),lastUpdateType:"新增品項"};
+  data.items.push(newItem); lastCreatedItemId=newItem.id; autoSelectNewItemInSearchFields(newItem);
+  if(initialStock>0) addStockHistory(newItem,0,initialStock,"新增品項初始庫存");
+  saveData(); renderAll(); showToast("新品項已新增");
+};
+
+addNewItemFromManage=function(){
+  const name=document.getElementById("newItemNameManage").value.trim();
+  const categoryInput=document.getElementById("newCategoryInput").value.trim();
+  const categorySelect=document.getElementById("newItemCategoryManage");
+  const category=categoryInput||categorySelect.value;
+  const safety=Number(document.getElementById("newItemSafetyManage").value)||0;
+  const stock=Number(document.getElementById("newItemStockManage")?.value||0)||0;
+  const dept=document.getElementById("newItemDeptManage").value.trim()||category;
+  if(categoryInput && ![...categorySelect.options].some(o=>o.value===categoryInput)){categorySelect.appendChild(new Option(categoryInput,categoryInput));categorySelect.value=categoryInput;}
+  const note=document.getElementById("newItemNoteManage").value.trim();
+  const shared=document.getElementById("newItemSharedManage").checked;
+  createNewItem({name,category,safety,dept,note,shared,stock});
+  ["newItemNameManage","newItemSafetyManage","newItemStockManage","newItemNoteManage","newCategoryInput"].forEach(id=>{const el=document.getElementById(id); if(el) el.value="";});
+  document.getElementById("newItemNameManage")?.focus();
+};
+
+function renderHistoryPage(){
+  const list=document.getElementById("historyPageList");
+  if(!list) return;
+  const search=document.getElementById("historySearchInput")?.value.trim()||historySearchKeyword||"";
+  const limit=document.getElementById("historyLimitSelect")?.value||historyLimitValue||"20";
+  historySearchKeyword=search; historyLimitValue=limit;
+  let records=(data.history||[]).filter(record=>{
+    if(!search) return true;
+    return String(record.itemName||"").includes(search)||String(record.type||"").includes(search)||String(record.user||"").includes(search)||String(record.note||"").includes(search);
+  });
+  if(limit!=="all") records=records.slice(0,Number(limit)||20);
+  if(!records.length){list.innerHTML="尚無庫存異動紀錄";return;}
+  list.innerHTML=records.map(record=>{
+    const changeText=(Number(record.change)||0)>0?`+${record.change}`:`${record.change||0}`;
+    return `<div class="history-card">
+      <div class="history-title"><span>${record.itemName||"未命名品項"}</span><span class="badge info">${record.type||"異動"}</span></div>
+      <div class="history-change">${record.oldStock ?? "-"} <span class="history-arrow">→</span> ${record.newStock ?? "-"}（${changeText}）</div>
+      <div class="history-meta">${record.user||"未知"}｜${record.time?formatDateTime(record.time):"-"}${record.note?`｜${record.note}`:""}</div>
+    </div>`;
+  }).join("");
+}
+
+function clearHistoryRecords(){
+  const role=document.getElementById("roleSelect")?.value||"staff";
+  if(!(role==="boss"||role==="emily")){
+    showToast("只有管理員可清除異動紀錄");
+    return;
+  }
+  if(!confirm("確定清除所有庫存異動紀錄？這不會影響目前庫存。")) return;
+  data.history=[];
+  saveData();
+  renderAll();
+  showToast("已清除庫存異動紀錄");
+}
+
+document.addEventListener("DOMContentLoaded",()=>{
+  ensureV20Styles(); removeV20UnusedUI();
+  document.getElementById("cancelQuickStockBtn")?.addEventListener("click",()=>closeModal("quickStockModal"));
+  document.getElementById("confirmQuickStockBtn")?.addEventListener("click",confirmQuickStockUpdate);
+  document.getElementById("historySearchInput")?.addEventListener("input",renderHistoryPage);
+  document.getElementById("historyLimitSelect")?.addEventListener("change",renderHistoryPage);
+  document.getElementById("clearHistoryBtn")?.addEventListener("click",clearHistoryRecords);
+});
+
+const gbV20RenderAll=renderAll;
+renderAll=function(){
+  gbV20RenderAll();
+  ensureV20Styles(); removeV20UnusedUI();
+  renderHistoryPage();
+};
+
+window.gbDiagnostic=function(){return {version:window.GB_VERSION,firebaseReady:!!window.GB_FIREBASE?.ready,authReady:!!window.GB_AUTH?.ready,currentRole:window.GB_AUTH?.role,currentUser:window.GB_AUTH?.user,currentTab};};
