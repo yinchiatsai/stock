@@ -2284,1247 +2284,209 @@ function gbDiagnostic() {
 window.gbDiagnostic = gbDiagnostic;
 
 
-
-/* GoldenBird Inventory v1.1：OCR 版面與 1688 多品項解析修正 */
-window.GB_VERSION = "goldenbird-inventory-v1.1-ocr-layout-parser";
-
-function gbOcrEnsureStyles() {
-  let style = document.getElementById("gbOcrStyles");
-  if (!style) {
-    style = document.createElement("style");
-    style.id = "gbOcrStyles";
-    document.head.appendChild(style);
-  }
-  style.textContent = `
-    #ocr:not(.hidden){ display:block; }
-    #ocr .card{ overflow:visible; }
-    .ocr-preview{
-      display:flex;
-      justify-content:flex-start;
-      align-items:flex-start;
-      margin-top:12px;
-    }
-    .ocr-preview img{
-      width:min(360px, 100%);
-      max-height:360px;
-      object-fit:contain;
-      border-radius:16px;
-      border:1px solid var(--line);
-      background:#fff;
-      box-shadow:0 8px 24px rgba(0,0,0,.06);
-    }
-    #ocrTextOutput{
-      width:100%;
-      min-height:280px;
-      font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      line-height:1.55;
-      white-space:pre-wrap;
-      resize:vertical;
-      box-sizing:border-box;
-    }
-    .ocr-result-list{
-      display:flex;
-      flex-direction:column;
-      gap:12px;
-    }
-    .ocr-row{
-      display:grid;
-      grid-template-columns:minmax(220px, 1.35fr) minmax(220px, 1.25fr) minmax(90px, .55fr) minmax(110px, .65fr) minmax(180px, .9fr);
-      gap:10px;
-      align-items:end;
-      border:1px solid var(--line);
-      border-radius:16px;
-      padding:12px;
-      background:#fff;
-    }
-    .ocr-row .field{ margin:0; }
-    .ocr-row .raw-text{
-      grid-column:1/-1;
-      color:var(--muted);
-      font-size:13px;
-      line-height:1.5;
-      word-break:break-word;
-    }
-    .ocr-row .currency-note{
-      grid-column:1/-1;
-      color:#536d75;
-      font-size:13px;
-      background:#f6faf9;
-      border-radius:12px;
-      padding:8px 10px;
-    }
-    .ocr-confidence{
-      display:inline-flex;
-      border-radius:999px;
-      padding:4px 10px;
-      background:#eef7f2;
-      color:#2f7a4f;
-      font-size:12px;
-      margin-left:6px;
-    }
-    @media (min-width: 980px){
-      #ocr .card textarea#ocrTextOutput{
-        min-height:360px;
-        font-size:15px;
-      }
-      #ocr .ocr-preview img{
-        width:320px;
-        max-height:320px;
-      }
-    }
-    @media (max-width: 760px){
-      .ocr-preview img{
-        width:100%;
-        max-height:420px;
-      }
-      #ocrTextOutput{
-        min-height:220px;
-      }
-      .ocr-row{ grid-template-columns:1fr; }
-      .ocr-row .raw-text,.ocr-row .currency-note{ grid-column:auto; }
-    }
-  `;
-}
-
-function gbOcrExtractSpecValue(line) {
-  const value = String(line || "");
-  const match = value.match(/(?:颜色|顏色|款式|規格|规格)[:：]\s*([^\s\/|]+)/);
-  return match ? match[1].trim() : "";
-}
-
-function gbOcrLooksLikeVariantLine(line) {
-  return /(?:颜色|顏色|款式)[:：]/.test(String(line || ""));
-}
-
-function gbOcrLooksLikeNameLine(line) {
-  const value = String(line || "");
-  if (!/[\u4e00-\u9fa5A-Za-z]/.test(value)) return false;
-  if (gbOcrIsNoise(value)) return false;
-  if (gbOcrLooksLikeVariantLine(value)) return false;
-  if (/^[¥￥NT\$\d×xX\s\.]+$/.test(value)) return false;
-  return value.replace(/\s+/g, "").length >= 4;
-}
-
-function gbOcrParseText(text) {
-  const lines = String(text || "")
-    .split(/\n+/)
-    .map(gbOcrCleanLine)
-    .filter(line => line && !gbOcrIsNoise(line));
-
-  const rows = [];
-  let currentName = "";
-  let pendingVariant = "";
-  let pendingRaw = "";
-  let pendingSpec = "";
-
-  function pushRow(nameText, specText, rawText, qty, cost) {
-    const combined = [nameText, specText].filter(Boolean).join(" ");
-    const best = gbOcrBestItem(combined);
-    rows.push({
-      rawText: rawText || combined,
-      nameText: nameText || combined,
-      specText: specText || "",
-      qty: qty || "",
-      cost: cost || "",
-      itemId: best?.item?.id || "",
-      confidence: best ? `可能符合 ${best.score}` : "需手動選擇"
-    });
-  }
-
-  lines.forEach(line => {
-    const price = gbOcrExtractPrice(line);
-    const qty = gbOcrExtractQty(line);
-    const specValue = gbOcrExtractSpecValue(line);
-
-    const lineNoMoneyQty = gbOcrCleanLine(
-      line.replace(/[¥￥]\s*[0-9]+(?:\.[0-9]+)?/g, "")
-          .replace(/(?:NT\$|NT|台幣|新台幣|\$)\s*[0-9]+(?:\.[0-9]+)?/ig, "")
-          .replace(/[×xX]\s*[0-9]+/g, "")
-    );
-
-    if (gbOcrLooksLikeNameLine(lineNoMoneyQty) && price === "" && qty === "") {
-      currentName = lineNoMoneyQty;
-      pendingVariant = "";
-      pendingRaw = line;
-      pendingSpec = "";
-      return;
-    }
-
-    if (specValue) {
-      pendingVariant = specValue;
-      pendingSpec = line;
-      pendingRaw = [pendingRaw, line].filter(Boolean).join(" / ");
-    }
-
-    if ((price !== "" || qty !== "") && currentName) {
-      const specText = pendingVariant ? `款式：${pendingVariant}` : pendingSpec;
-      pushRow(
-        currentName,
-        specText,
-        [pendingRaw, line].filter(Boolean).join(" / "),
-        qty,
-        price
-      );
-      pendingVariant = "";
-      pendingRaw = "";
-      pendingSpec = "";
-      return;
-    }
-
-    if (gbOcrLooksLikeNameLine(lineNoMoneyQty) && (price !== "" || qty !== "")) {
-      pushRow(lineNoMoneyQty, "", line, qty, price);
-      return;
-    }
-  });
-
-  if (!rows.length) {
-    let fallbackName = "";
-    lines.forEach(line => {
-      const price = gbOcrExtractPrice(line);
-      const qty = gbOcrExtractQty(line);
-      const specValue = gbOcrExtractSpecValue(line);
-      if (gbOcrLooksLikeNameLine(line) && !specValue) fallbackName = line;
-      if (fallbackName && specValue && (price !== "" || qty !== "")) {
-        pushRow(fallbackName, `款式：${specValue}`, line, qty, price);
-      }
-    });
-  }
-
-  return rows
-    .filter(row => row.nameText && (row.qty || row.cost || row.specText || row.itemId))
-    .slice(0, 30);
-}
-
-function bindOcrAssistant() {
-  gbOcrEnsureStyles();
-  gbOcrDefaultDate();
-
-  const imageInput = document.getElementById("ocrImageInput");
-  const runBtn = document.getElementById("runOcrBtn");
-  const parseBtn = document.getElementById("parseOcrTextBtn");
-  const clearBtn = document.getElementById("clearOcrBtn");
-  const confirmBtn = document.getElementById("confirmOcrOrdersBtn");
-  const currency = document.getElementById("ocrCurrencyInput");
-  const rate = document.getElementById("ocrExchangeRateInput");
-
-  if (imageInput && imageInput.dataset.boundV11 !== "true") {
-    imageInput.addEventListener("change", previewOcrImage);
-    imageInput.dataset.boundV11 = "true";
-  }
-  if (runBtn && runBtn.dataset.boundV11 !== "true") {
-    runBtn.addEventListener("click", runOcrRecognition);
-    runBtn.dataset.boundV11 = "true";
-  }
-  if (parseBtn && parseBtn.dataset.boundV11 !== "true") {
-    parseBtn.addEventListener("click", event => {
-      event.preventDefault();
-      parseOcrTextFromTextarea();
-    });
-    parseBtn.dataset.boundV11 = "true";
-  }
-  if (clearBtn && clearBtn.dataset.boundV11 !== "true") {
-    clearBtn.addEventListener("click", clearOcrAssistant);
-    clearBtn.dataset.boundV11 = "true";
-  }
-  if (confirmBtn && confirmBtn.dataset.boundV11 !== "true") {
-    confirmBtn.addEventListener("click", confirmOcrOrders);
-    confirmBtn.dataset.boundV11 = "true";
-  }
-
-  [currency, rate].forEach(el => {
-    if (el && el.dataset.ocrRefreshBoundV11 !== "true") {
-      el.addEventListener("change", () => gbOcrRenderRows(gbOcrRows));
-      el.dataset.ocrRefreshBoundV11 = "true";
-    }
-  });
-}
-
-document.addEventListener("click", event => {
-  if (event.target && event.target.id === "parseOcrTextBtn") {
-    event.preventDefault();
-    parseOcrTextFromTextarea();
-  }
-}, true);
-
-
-
-/* GoldenBird Inventory v1.2：OCR 按鈕穩定修正＋移除後台截圖上傳 */
-window.GB_VERSION = "goldenbird-inventory-v1.2-ocr-button-fix";
-
-function gbOcrEnsureStyles() {
-  let style = document.getElementById("gbOcrStyles");
-  if (!style) {
-    style = document.createElement("style");
-    style.id = "gbOcrStyles";
-    document.head.appendChild(style);
-  }
-  style.textContent = `
-    #ocr:not(.hidden){ display:block; }
-    #ocr .card{ overflow:visible; }
-    .ocr-preview{
-      display:flex;
-      justify-content:flex-start;
-      align-items:flex-start;
-      margin-top:12px;
-    }
-    .ocr-preview img{
-      width:min(360px, 100%);
-      max-height:360px;
-      object-fit:contain;
-      border-radius:16px;
-      border:1px solid var(--line);
-      background:#fff;
-      box-shadow:0 8px 24px rgba(0,0,0,.06);
-    }
-    #ocrTextOutput{
-      width:100%;
-      min-height:300px;
-      font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      line-height:1.55;
-      white-space:pre-wrap;
-      resize:vertical;
-      box-sizing:border-box;
-    }
-    .ocr-result-list{
-      display:flex;
-      flex-direction:column;
-      gap:12px;
-    }
-    .ocr-row{
-      display:grid;
-      grid-template-columns:minmax(220px, 1.35fr) minmax(220px, 1.25fr) minmax(90px, .55fr) minmax(110px, .65fr) minmax(180px, .9fr);
-      gap:10px;
-      align-items:end;
-      border:1px solid var(--line);
-      border-radius:16px;
-      padding:12px;
-      background:#fff;
-    }
-    .ocr-row .field{ margin:0; }
-    .ocr-row .raw-text{
-      grid-column:1/-1;
-      color:var(--muted);
-      font-size:13px;
-      line-height:1.5;
-      word-break:break-word;
-    }
-    .ocr-row .currency-note{
-      grid-column:1/-1;
-      color:#536d75;
-      font-size:13px;
-      background:#f6faf9;
-      border-radius:12px;
-      padding:8px 10px;
-    }
-    .ocr-confidence{
-      display:inline-flex;
-      border-radius:999px;
-      padding:4px 10px;
-      background:#eef7f2;
-      color:#2f7a4f;
-      font-size:12px;
-      margin-left:6px;
-    }
-    @media (min-width: 980px){
-      #ocr .card textarea#ocrTextOutput{
-        min-height:380px;
-        font-size:15px;
-      }
-      #ocr .ocr-preview img{
-        width:320px;
-        max-height:320px;
-      }
-    }
-    @media (max-width: 760px){
-      .ocr-preview img{
-        width:100%;
-        max-height:420px;
-      }
-      #ocrTextOutput{
-        min-height:240px;
-      }
-      .ocr-row{ grid-template-columns:1fr; }
-      .ocr-row .raw-text,.ocr-row .currency-note{ grid-column:auto; }
-    }
-  `;
-}
-
-function gbOcrExtractSpecValue(line) {
-  const value = String(line || "");
-  const match = value.match(/(?:颜色|顏色|款式|規格|规格)[:：]\s*([^\s\/|]+)/);
-  return match ? match[1].trim() : "";
-}
-
-function gbOcrLooksLikeVariantLine(line) {
-  return /(?:颜色|顏色|款式)[:：]/.test(String(line || ""));
-}
-
-function gbOcrLooksLikeNameLine(line) {
-  const value = String(line || "");
-  if (!/[\u4e00-\u9fa5A-Za-z]/.test(value)) return false;
-  if (typeof gbOcrIsNoise === "function" && gbOcrIsNoise(value)) return false;
-  if (gbOcrLooksLikeVariantLine(value)) return false;
-  if (/^[¥￥NT\$\d×xX\s\.]+$/.test(value)) return false;
-  return value.replace(/\s+/g, "").length >= 4;
-}
-
-function gbOcrParseText(text) {
-  const clean = typeof gbOcrCleanLine === "function" ? gbOcrCleanLine : (line => String(line || "").trim());
-  const isNoise = typeof gbOcrIsNoise === "function" ? gbOcrIsNoise : (() => false);
-
-  const lines = String(text || "")
-    .split(/\n+/)
-    .map(clean)
-    .filter(line => line && !isNoise(line));
-
-  const rows = [];
-  let currentName = "";
-  let pendingVariant = "";
-  let pendingRaw = "";
-  let pendingSpec = "";
-
-  function pushRow(nameText, specText, rawText, qty, cost) {
-    const combined = [nameText, specText].filter(Boolean).join(" ");
-    const best = typeof gbOcrBestItem === "function" ? gbOcrBestItem(combined) : null;
-    rows.push({
-      rawText: rawText || combined,
-      nameText: nameText || combined,
-      specText: specText || "",
-      qty: qty || "",
-      cost: cost || "",
-      itemId: best?.item?.id || "",
-      confidence: best ? `可能符合 ${best.score || ""}` : "需手動選擇"
-    });
-  }
-
-  lines.forEach(line => {
-    const price = typeof gbOcrExtractPrice === "function" ? gbOcrExtractPrice(line) : "";
-    const qty = typeof gbOcrExtractQty === "function" ? gbOcrExtractQty(line) : "";
-    const specValue = gbOcrExtractSpecValue(line);
-
-    const lineNoMoneyQty = clean(
-      line.replace(/[¥￥]\s*[0-9]+(?:\.[0-9]+)?/g, "")
-          .replace(/(?:NT\$|NT|台幣|新台幣|\$)\s*[0-9]+(?:\.[0-9]+)?/ig, "")
-          .replace(/[×xX]\s*[0-9]+/g, "")
-    );
-
-    if (gbOcrLooksLikeNameLine(lineNoMoneyQty) && price === "" && qty === "") {
-      currentName = lineNoMoneyQty;
-      pendingVariant = "";
-      pendingRaw = line;
-      pendingSpec = "";
-      return;
-    }
-
-    if (specValue) {
-      pendingVariant = specValue;
-      pendingSpec = line;
-      pendingRaw = [pendingRaw, line].filter(Boolean).join(" / ");
-    }
-
-    if ((price !== "" || qty !== "") && currentName) {
-      const specText = pendingVariant ? `款式：${pendingVariant}` : pendingSpec;
-      pushRow(currentName, specText, [pendingRaw, line].filter(Boolean).join(" / "), qty, price);
-      pendingVariant = "";
-      pendingRaw = "";
-      pendingSpec = "";
-      return;
-    }
-
-    if (gbOcrLooksLikeNameLine(lineNoMoneyQty) && (price !== "" || qty !== "")) {
-      pushRow(lineNoMoneyQty, "", line, qty, price);
-    }
-  });
-
-  return rows
-    .filter(row => row.nameText && (row.qty || row.cost || row.specText || row.itemId))
-    .slice(0, 30);
-}
-
-function gbOcrRunFromButton() {
-  const status = document.getElementById("ocrStatus");
-  if (status) status.textContent = "準備辨識中…";
-  if (typeof runOcrRecognition === "function") {
-    return runOcrRecognition();
-  }
-  alert("OCR 功能尚未載入完成，請重新整理後再試一次。");
-}
-
-function gbOcrParseFromButton() {
-  const output = document.getElementById("ocrTextOutput");
-  const text = output?.value || "";
-  const rows = gbOcrParseText(text);
-  if (typeof gbOcrRenderRows === "function") {
-    gbOcrRenderRows(rows);
-  } else if (typeof renderOcrRows === "function") {
-    renderOcrRows(rows);
-  } else {
-    const list = document.getElementById("ocrResultList");
-    if (list) list.textContent = "解析完成，但結果渲染模組尚未載入。";
-  }
-}
-
-function gbOcrBindButtonsHard() {
-  gbOcrEnsureStyles();
-
-  const runBtn = document.getElementById("runOcrBtn");
-  const parseBtn = document.getElementById("parseOcrTextBtn");
-  const clearBtn = document.getElementById("clearOcrBtn");
-  const confirmBtn = document.getElementById("confirmOcrOrdersBtn");
-  const imageInput = document.getElementById("ocrImageInput");
-
-  if (runBtn) runBtn.onclick = event => {
-    event.preventDefault();
-    gbOcrRunFromButton();
-  };
-
-  if (parseBtn) parseBtn.onclick = event => {
-    event.preventDefault();
-    gbOcrParseFromButton();
-  };
-
-  if (clearBtn && typeof clearOcrAssistant === "function") {
-    clearBtn.onclick = event => {
-      event.preventDefault();
-      clearOcrAssistant();
-    };
-  }
-
-  if (confirmBtn && typeof confirmOcrOrders === "function") {
-    confirmBtn.onclick = event => {
-      event.preventDefault();
-      confirmOcrOrders();
-    };
-  }
-
-  if (imageInput && typeof previewOcrImage === "function") {
-    imageInput.onchange = previewOcrImage;
-  }
-}
-
-// 覆蓋原本 bind，避免 dataset 已綁定但其實失效
-bindOcrAssistant = function() {
-  if (typeof gbOcrDefaultDate === "function") gbOcrDefaultDate();
-  gbOcrBindButtonsHard();
-};
-
-document.addEventListener("DOMContentLoaded", () => {
-  setTimeout(gbOcrBindButtonsHard, 300);
-  setTimeout(gbOcrBindButtonsHard, 1200);
-});
-
-document.addEventListener("click", event => {
-  const id = event.target?.id;
-  if (id === "runOcrBtn") {
-    event.preventDefault();
-    gbOcrRunFromButton();
-  }
-  if (id === "parseOcrTextBtn") {
-    event.preventDefault();
-    gbOcrParseFromButton();
-  }
-}, true);
-
-function gbDiagnostic() {
-  return {
-    version: window.GB_VERSION,
-    hasOcrPanel: !!document.getElementById("ocr"),
-    hasRunBtn: !!document.getElementById("runOcrBtn"),
-    hasParseBtn: !!document.getElementById("parseOcrTextBtn"),
-    hasTesseract: typeof Tesseract !== "undefined",
-    firebaseReady: !!window.GB_FIREBASE?.ready,
-    authReady: !!window.GB_AUTH?.ready
-  };
-}
-window.gbDiagnostic = gbDiagnostic;
-window.gbOcrBindButtonsHard = gbOcrBindButtonsHard;
-
-
-
-/* GoldenBird Inventory v1.3：OCR 自動解析流程 */
-window.GB_VERSION = "goldenbird-inventory-v1.3-ocr-auto-parse";
-
-function gbOcrAutoParseAndRender(text) {
-  const rows = typeof gbOcrParseText === "function" ? gbOcrParseText(text) : [];
-  if (typeof gbOcrRenderRows === "function") {
-    gbOcrRenderRows(rows);
-  } else if (typeof renderOcrRows === "function") {
-    renderOcrRows(rows);
-  }
-  const status = document.getElementById("ocrStatus");
-  if (status) {
-    status.textContent = rows.length
-      ? `辨識完成，已自動產生 ${rows.length} 筆結果。請確認品項、數量與成本。`
-      : "辨識完成，但沒有解析出品項。請查看下方辨識文字，或新增商品對應關鍵字。";
-  }
-}
-
-async function runOcrRecognition() {
-  gbOcrEnsureStyles();
-  if (typeof gbOcrDefaultDate === "function") gbOcrDefaultDate();
-
-  const input = document.getElementById("ocrImageInput");
-  const output = document.getElementById("ocrTextOutput");
-  const status = document.getElementById("ocrStatus");
-
-  if (!input?.files?.[0]) {
-    alert("請先選擇圖片。");
-    return;
-  }
-
-  if (typeof Tesseract === "undefined") {
-    alert("OCR 模組尚未載入完成，請重新整理後再試一次。");
-    return;
-  }
-
-  if (status) status.textContent = "辨識中，請稍候…第一次使用可能需要 10～30 秒。";
-
-  try {
-    const result = await Tesseract.recognize(input.files[0], "chi_sim+chi_tra+eng", {
-      logger: message => {
-        if (message.status === "recognizing text" && status) {
-          status.textContent = `辨識中… ${Math.round((message.progress || 0) * 100)}%`;
-        }
-      }
-    });
-
-    const text = result?.data?.text || "";
-    if (output) output.value = text;
-
-    gbOcrAutoParseAndRender(text);
-  } catch (error) {
-    console.error(error);
-    if (status) status.textContent = "辨識失敗。請換較清楚的截圖，或手動貼上文字後按重新解析。";
-  }
-}
-
-function gbOcrParseFromButton() {
-  const text = document.getElementById("ocrTextOutput")?.value || "";
-  gbOcrAutoParseAndRender(text);
-}
-
-function gbOcrBindButtonsHard() {
-  if (typeof gbOcrEnsureStyles === "function") gbOcrEnsureStyles();
-  if (typeof gbOcrDefaultDate === "function") gbOcrDefaultDate();
-
-  const runBtn = document.getElementById("runOcrBtn");
-  const parseBtn = document.getElementById("parseOcrTextBtn");
-  const clearBtn = document.getElementById("clearOcrBtn");
-  const confirmBtn = document.getElementById("confirmOcrOrdersBtn");
-  const imageInput = document.getElementById("ocrImageInput");
-
-  if (runBtn) {
-    runBtn.onclick = event => {
-      event.preventDefault();
-      runOcrRecognition();
-    };
-  }
-
-  if (parseBtn) {
-    parseBtn.onclick = event => {
-      event.preventDefault();
-      gbOcrParseFromButton();
-    };
-  }
-
-  if (clearBtn && typeof clearOcrAssistant === "function") {
-    clearBtn.onclick = event => {
-      event.preventDefault();
-      clearOcrAssistant();
-    };
-  }
-
-  if (confirmBtn && typeof confirmOcrOrders === "function") {
-    confirmBtn.onclick = event => {
-      event.preventDefault();
-      confirmOcrOrders();
-    };
-  }
-
-  if (imageInput && typeof previewOcrImage === "function") {
-    imageInput.onchange = previewOcrImage;
-  }
-}
-
-bindOcrAssistant = function() {
-  gbOcrBindButtonsHard();
-};
-
-document.addEventListener("DOMContentLoaded", () => {
-  setTimeout(gbOcrBindButtonsHard, 300);
-  setTimeout(gbOcrBindButtonsHard, 1200);
-});
-
-document.addEventListener("click", event => {
-  const id = event.target?.id;
-  if (id === "runOcrBtn") {
-    event.preventDefault();
-    runOcrRecognition();
-  }
-  if (id === "parseOcrTextBtn") {
-    event.preventDefault();
-    gbOcrParseFromButton();
-  }
-}, true);
-
-function gbDiagnostic() {
-  return {
-    version: window.GB_VERSION,
-    hasOcrPanel: !!document.getElementById("ocr"),
-    hasRunBtn: !!document.getElementById("runOcrBtn"),
-    hasParseBtn: !!document.getElementById("parseOcrTextBtn"),
-    hasTesseract: typeof Tesseract !== "undefined",
-    firebaseReady: !!window.GB_FIREBASE?.ready,
-    authReady: !!window.GB_AUTH?.ready
-  };
-}
-window.gbDiagnostic = gbDiagnostic;
-window.gbOcrBindButtonsHard = gbOcrBindButtonsHard;
-
-
-
-/* GoldenBird Inventory v1.4：OCR 寬鬆解析與商品對應補強 */
-window.GB_VERSION = "goldenbird-inventory-v1.4-ocr-flex-parser";
-
-function gbOcrIsLikelyProductName(line) {
-  const value = String(line || "").trim();
-  if (!value) return false;
-  if (typeof gbOcrIsNoise === "function" && gbOcrIsNoise(value)) return false;
-  if (/^(颜色|顏色|規格|规格|材质|材質|尺寸|含運費|含运费|總實付|总实付)/.test(value)) return false;
-  if (/[¥￥]|NT\$|台幣|新台幣|×|x\s*\d/i.test(value)) return false;
-  if (!/[\u4e00-\u9fa5A-Za-z]/.test(value)) return false;
-  return value.replace(/\s+/g, "").length >= 4;
-}
-
-function gbOcrIsSpecLine(line) {
-  return /颜色|顏色|規格|规格|款式|材质|材質|尺寸|內徑|内径|外径|外徑|高度|長|宽|寬|笔芯|筆芯|P900|噴砂|喷砂/.test(String(line || ""));
-}
-
-function gbOcrPushBlock(block, rows) {
-  if (!block || !block.nameText) return;
-
-  const combined = [block.nameText, block.specText].filter(Boolean).join(" ");
-  const best = typeof gbOcrBestItem === "function" ? gbOcrBestItem(combined) : null;
-
-  rows.push({
-    rawText: block.rawText || combined,
-    nameText: block.nameText,
-    specText: block.specText || "",
-    qty: block.qty || "",
-    cost: block.cost || "",
-    itemId: best?.item?.id || "",
-    confidence: best ? `可能符合 ${best.score || ""}` : "需手動選擇"
-  });
-}
-
-function gbOcrParseText(text) {
-  const clean = typeof gbOcrCleanLine === "function" ? gbOcrCleanLine : (line => String(line || "").trim());
-  const isNoise = typeof gbOcrIsNoise === "function" ? gbOcrIsNoise : (() => false);
-
-  const lines = String(text || "")
-    .split(/\n+/)
-    .map(clean)
-    .filter(line => line && !isNoise(line));
-
-  const rows = [];
-  let block = null;
-
-  function closeBlockIfUseful() {
-    if (!block) return;
-    if (block.qty || block.cost || block.specText) gbOcrPushBlock(block, rows);
-    block = null;
-  }
-
-  lines.forEach(line => {
-    const price = typeof gbOcrExtractPrice === "function" ? gbOcrExtractPrice(line) : "";
-    const qty = typeof gbOcrExtractQty === "function" ? gbOcrExtractQty(line) : "";
-    const specValue = typeof gbOcrExtractSpecValue === "function" ? gbOcrExtractSpecValue(line) : "";
-    const hasPriceOrQty = price !== "" || qty !== "";
-
-    const lineWithoutNums = clean(
-      line.replace(/[¥￥]\s*[0-9]+(?:\.[0-9]+)?/g, "")
-          .replace(/(?:NT\$|NT|台幣|新台幣|\$)\s*[0-9]+(?:\.[0-9]+)?/ig, "")
-          .replace(/[×xX]\s*[0-9]+/g, "")
-    );
-
-    // 新品名出現，且上一個 block 已有價格或數量，就先結束上一筆
-    if (gbOcrIsLikelyProductName(lineWithoutNums) && !hasPriceOrQty && !gbOcrIsSpecLine(lineWithoutNums)) {
-      closeBlockIfUseful();
-      block = {
-        nameText: lineWithoutNums,
-        specText: "",
-        qty: "",
-        cost: "",
-        rawText: line
-      };
-      return;
-    }
-
-    // 還沒有品名，但這行看起來像品名＋價格/數量，直接建立 block
-    if (gbOcrIsLikelyProductName(lineWithoutNums) && hasPriceOrQty) {
-      closeBlockIfUseful();
-      block = {
-        nameText: lineWithoutNums,
-        specText: "",
-        qty: qty || "",
-        cost: price || "",
-        rawText: line
-      };
-      if (block.qty && block.cost) {
-        closeBlockIfUseful();
-      }
-      return;
-    }
-
-    // 規格行：加入目前 block；若還沒有 block，就當作臨時品名
-    if (gbOcrIsSpecLine(line) || specValue) {
-      if (!block) {
-        block = {
-          nameText: specValue || line,
-          specText: line,
-          qty: "",
-          cost: "",
-          rawText: line
-        };
-      } else {
-        block.specText = [block.specText, line].filter(Boolean).join(" ");
-        block.rawText = [block.rawText, line].filter(Boolean).join(" / ");
-      }
-
-      if (price !== "") block.cost = price;
-      if (qty !== "") block.qty = qty;
-      if (block.qty && block.cost) closeBlockIfUseful();
-      return;
-    }
-
-    // 價格或數量行：補進目前 block
-    if (hasPriceOrQty) {
-      if (!block) {
-        block = {
-          nameText: lineWithoutNums || "未辨識品名",
-          specText: "",
-          qty: "",
-          cost: "",
-          rawText: line
-        };
-      } else {
-        block.rawText = [block.rawText, line].filter(Boolean).join(" / ");
-      }
-
-      if (price !== "") block.cost = price;
-      if (qty !== "") block.qty = qty;
-
-      if (block.qty && block.cost) closeBlockIfUseful();
-    }
-  });
-
-  closeBlockIfUseful();
-
-  // 第二層保底：如果完全解析不到，至少用價格/數量附近建立可手動選品項的列
-  if (!rows.length) {
-    const priceLines = lines
-      .map((line, index) => ({ line, index, price: typeof gbOcrExtractPrice === "function" ? gbOcrExtractPrice(line) : "", qty: typeof gbOcrExtractQty === "function" ? gbOcrExtractQty(line) : "" }))
-      .filter(row => row.price !== "" || row.qty !== "");
-
-    priceLines.forEach(row => {
-      const before = lines.slice(Math.max(0, row.index - 4), row.index).reverse();
-      const name = before.find(gbOcrIsLikelyProductName) || before.find(line => /[\u4e00-\u9fa5A-Za-z]/.test(line)) || "未辨識品名";
-      const spec = before.filter(gbOcrIsSpecLine).join(" ");
-      gbOcrPushBlock({
-        nameText: name,
-        specText: spec,
-        qty: row.qty,
-        cost: row.price,
-        rawText: [...before.reverse(), row.line].join(" / ")
-      }, rows);
-    });
-  }
-
-  return rows.slice(0, 30);
-}
-
-function gbOcrAutoParseAndRender(text) {
-  const rows = gbOcrParseText(text);
-  if (typeof gbOcrRenderRows === "function") {
-    gbOcrRenderRows(rows);
-  } else if (typeof renderOcrRows === "function") {
-    renderOcrRows(rows);
-  }
-
-  const status = document.getElementById("ocrStatus");
-  if (status) {
-    status.textContent = rows.length
-      ? `辨識完成，已產生 ${rows.length} 筆候選結果。請確認對應內部品項。`
-      : "辨識完成，但沒有解析出品項。請查看下方辨識文字，或新增商品對應關鍵字。";
-  }
-}
-
-function gbOcrParseFromButton() {
-  const text = document.getElementById("ocrTextOutput")?.value || "";
-  gbOcrAutoParseAndRender(text);
-}
-
-function gbDiagnostic() {
-  return {
-    version: window.GB_VERSION,
-    hasOcrPanel: !!document.getElementById("ocr"),
-    hasParseBtn: !!document.getElementById("parseOcrTextBtn"),
-    ocrTextLength: document.getElementById("ocrTextOutput")?.value?.length || 0,
-    hasTesseract: typeof Tesseract !== "undefined",
-    firebaseReady: !!window.GB_FIREBASE?.ready,
-    authReady: !!window.GB_AUTH?.ready
-  };
-}
-window.gbDiagnostic = gbDiagnostic;
-window.parseOcrTextToRows = gbOcrParseText;
-
-
-
-/* GoldenBird Inventory v1.5：正式上線 UI 清理 */
-window.GB_VERSION = "goldenbird-inventory-v1.5-ui-launch-cleanup";
-
-function ensureLaunchCleanupStyles() {
-  if (document.getElementById("launchCleanupStyles")) return;
+/* GoldenBird Inventory v1.0 Stable｜正式穩定版：移除 AI/OCR 入口 */
+window.GB_VERSION = "goldenbird-inventory-v1.0-stable";
+
+function ensureStableLaunchStyles() {
+  if (document.getElementById("stableLaunchStyles")) return;
 
   const style = document.createElement("style");
-  style.id = "launchCleanupStyles";
+  style.id = "stableLaunchStyles";
   style.textContent = `
-    /* 正式上線：隱藏示範資料重置 */
-    #resetDemoBtn{
-      display:none !important;
+    [data-tab="ocr"],
+    #ocr,
+    #resetDemoBtn,
+    #orderScreenshotInput,
+    #screenshotPreview {
+      display: none !important;
     }
 
-    /* 管理後台叫貨管理滿版，避免右側大空白 */
-    #adminContent .order-section{
-      width:100%;
-    }
-    #adminContent .order-input-grid{
-      display:grid;
-      grid-template-columns:1fr !important;
-      gap:18px;
-      width:100%;
-    }
-    #adminContent .order-input-grid > .card{
-      width:100%;
-      box-sizing:border-box;
-    }
-    #adminContent .admin-section{
-      width:100%;
-      box-sizing:border-box;
+    #adminContent .order-section,
+    #adminContent .admin-section {
+      width: 100%;
+      box-sizing: border-box;
     }
 
-    /* 桌機庫存列表維持表格式 */
-    .inventory-list .inventory-row{
-      align-items:center;
+    #adminContent .order-input-grid {
+      display: grid;
+      grid-template-columns: 1fr !important;
+      gap: 18px;
+      width: 100%;
     }
 
-    /* 手機版庫存總覽：緊湊單欄，最多約兩行 */
-    @media (max-width: 760px){
-      #overview .toolbar{
-        gap:10px;
+    #adminContent .order-input-grid > .card {
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    @media (max-width: 760px) {
+      #inventoryGrid .inventory-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
       }
 
-      #inventoryGrid .inventory-list{
-        display:flex;
-        flex-direction:column;
-        gap:8px;
+      #inventoryGrid .inventory-row.header {
+        display: none !important;
       }
 
-      #inventoryGrid .inventory-row.header{
-        display:none !important;
-      }
-
-      #inventoryGrid .inventory-row{
-        display:grid !important;
-        grid-template-columns:1fr auto;
+      #inventoryGrid .inventory-row {
+        display: grid !important;
+        grid-template-columns: 1fr auto;
         grid-template-areas:
           "name status"
           "numbers numbers";
-        gap:6px 10px;
-        padding:10px 12px !important;
-        border-radius:14px;
-        min-height:auto !important;
+        gap: 6px 10px;
+        padding: 10px 12px !important;
+        border-radius: 14px;
+        min-height: auto !important;
       }
 
-      #inventoryGrid .inventory-name{
-        grid-area:name;
-        min-width:0;
+      #inventoryGrid .inventory-name {
+        grid-area: name;
+        min-width: 0;
       }
 
-      #inventoryGrid .inventory-name strong{
-        display:block;
-        font-size:16px;
-        line-height:1.25;
-        white-space:nowrap;
-        overflow:hidden;
-        text-overflow:ellipsis;
+      #inventoryGrid .inventory-name strong {
+        display: block;
+        font-size: 16px;
+        line-height: 1.25;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
-      #inventoryGrid .meta-tags{
-        display:flex;
-        flex-wrap:nowrap;
-        gap:5px;
-        margin-top:4px;
-        overflow:hidden;
+      #inventoryGrid .meta-tags {
+        display: flex;
+        flex-wrap: nowrap;
+        gap: 5px;
+        margin-top: 4px;
+        overflow: hidden;
       }
 
-      #inventoryGrid .meta-tag{
-        font-size:11px;
-        padding:3px 7px;
-        white-space:nowrap;
-        max-width:88px;
-        overflow:hidden;
-        text-overflow:ellipsis;
+      #inventoryGrid .meta-tag {
+        font-size: 11px;
+        padding: 3px 7px;
+        white-space: nowrap;
+        max-width: 88px;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
-      #inventoryGrid .meta-tag:nth-child(n+4){
-        display:none;
+      #inventoryGrid .meta-tag:nth-child(n+4) {
+        display: none;
       }
 
-      #inventoryGrid .inventory-row > div:nth-child(5){
-        grid-area:status;
-        align-self:start;
-        justify-self:end;
+      #inventoryGrid .inventory-row > div:nth-child(5) {
+        grid-area: status;
+        align-self: start;
+        justify-self: end;
       }
 
       #inventoryGrid .inventory-row > div:nth-child(2),
       #inventoryGrid .inventory-row > div:nth-child(3),
       #inventoryGrid .inventory-row > div:nth-child(4),
-      #inventoryGrid .inventory-row > div:nth-child(6){
-        grid-area:numbers;
+      #inventoryGrid .inventory-row > div:nth-child(6) {
+        grid-area: numbers;
       }
 
-      #inventoryGrid .inventory-row > div:nth-child(2){
-        justify-self:start;
-        margin-top:2px;
-      }
-      #inventoryGrid .inventory-row > div:nth-child(3){
-        justify-self:start;
-        margin-left:74px;
-        margin-top:2px;
-      }
-      #inventoryGrid .inventory-row > div:nth-child(4){
-        justify-self:start;
-        margin-left:148px;
-        margin-top:2px;
-      }
-      #inventoryGrid .inventory-row > div:nth-child(6){
-        justify-self:end;
-        margin-top:2px;
+      #inventoryGrid .inventory-row > div:nth-child(2) {
+        justify-self: start;
       }
 
-      #inventoryGrid .num-cell,
-      #inventoryGrid .suggest-cell{
-        font-size:14px;
-        line-height:1.4;
-        color:var(--text);
+      #inventoryGrid .inventory-row > div:nth-child(3) {
+        justify-self: start;
+        margin-left: 74px;
       }
 
-      #inventoryGrid .stock-cell::before{
-        content:"庫 ";
-        color:var(--muted);
-        font-weight:600;
-      }
-      #inventoryGrid .incoming-cell::before{
-        content:"途 ";
-        color:var(--muted);
-        font-weight:600;
-      }
-      #inventoryGrid .safety-cell::before{
-        content:"安 ";
-        color:var(--muted);
-        font-weight:600;
-      }
-      #inventoryGrid .suggest-cell::before{
-        content:"補 ";
-        color:var(--muted);
-        font-weight:600;
+      #inventoryGrid .inventory-row > div:nth-child(4) {
+        justify-self: start;
+        margin-left: 148px;
       }
 
-      #inventoryGrid .safety-input{
-        width:44px !important;
-        padding:2px 4px !important;
-        font-size:13px !important;
-        text-align:center;
+      #inventoryGrid .inventory-row > div:nth-child(6) {
+        justify-self: end;
       }
 
-      #inventoryGrid .badge{
-        font-size:12px;
-        padding:4px 8px;
-        white-space:nowrap;
+      #inventoryGrid .stock-cell::before {
+        content: "庫 ";
+        color: var(--muted);
+        font-weight: 600;
+      }
+
+      #inventoryGrid .incoming-cell::before {
+        content: "途 ";
+        color: var(--muted);
+        font-weight: 600;
+      }
+
+      #inventoryGrid .safety-cell::before {
+        content: "安 ";
+        color: var(--muted);
+        font-weight: 600;
+      }
+
+      #inventoryGrid .suggest-cell::before {
+        content: "補 ";
+        color: var(--muted);
+        font-weight: 600;
+      }
+
+      #inventoryGrid .safety-input {
+        width: 44px !important;
+        padding: 2px 4px !important;
+        font-size: 13px !important;
+        text-align: center;
+      }
+
+      #inventoryGrid .badge {
+        font-size: 12px;
+        padding: 4px 8px;
+        white-space: nowrap;
       }
     }
   `;
   document.head.appendChild(style);
 }
 
+function removeStableUnusedUI() {
+  const ocrTab = document.querySelector('[data-tab="ocr"]');
+  if (ocrTab) ocrTab.remove();
+
+  const ocrSection = document.getElementById("ocr");
+  if (ocrSection) ocrSection.remove();
+
+  const resetDemoBtn = document.getElementById("resetDemoBtn");
+  if (resetDemoBtn) resetDemoBtn.remove();
+
+  const screenshotCard = document.getElementById("orderScreenshotInput")?.closest(".card");
+  if (screenshotCard) screenshotCard.remove();
+
+  if (currentTab === "ocr") switchTab("overview");
+}
+
 document.addEventListener("DOMContentLoaded", () => {
-  ensureLaunchCleanupStyles();
+  ensureStableLaunchStyles();
+  removeStableUnusedUI();
+  setTimeout(removeStableUnusedUI, 600);
 });
 
-const gbOldRenderAllForLaunchCleanup = renderAll;
+const gbStableRenderAll = renderAll;
 renderAll = function() {
-  gbOldRenderAllForLaunchCleanup();
-  ensureLaunchCleanupStyles();
+  gbStableRenderAll();
+  ensureStableLaunchStyles();
+  removeStableUnusedUI();
 };
-
-
-
-/* GoldenBird Inventory v1.6：OCR 載入穩定版 */
-window.GB_VERSION = "goldenbird-inventory-v1.6-ocr-stable-loader";
-
-function gbOcrWorkerOptions(statusEl) {
-  return {
-    workerPath: "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js",
-    corePath: "https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core.wasm.js",
-    langPath: "https://tessdata.projectnaptha.com/4.0.0",
-    logger: message => {
-      if (!statusEl) return;
-      if (message.status === "loading tesseract core") statusEl.textContent = "載入 OCR 核心中…";
-      if (message.status === "initializing tesseract") statusEl.textContent = "初始化 OCR 中…";
-      if (message.status === "loading language traineddata") statusEl.textContent = "下載中文字庫中…第一次可能較久。";
-      if (message.status === "recognizing text") {
-        statusEl.textContent = `辨識中… ${Math.round((message.progress || 0) * 100)}%`;
-      }
-    }
-  };
-}
-
-async function gbOcrRecognizeWithFallback(file, statusEl) {
-  const attempts = [
-    { lang: "chi_sim+eng", label: "簡中+英文" },
-    { lang: "chi_tra+eng", label: "繁中+英文" },
-    { lang: "eng", label: "英文備援" }
-  ];
-
-  let lastError = null;
-
-  for (const attempt of attempts) {
-    try {
-      if (statusEl) statusEl.textContent = `OCR 載入中：${attempt.label}`;
-      const result = await Tesseract.recognize(file, attempt.lang, gbOcrWorkerOptions(statusEl));
-      const text = result?.data?.text || "";
-      if (text.trim()) return { text, lang: attempt.label };
-      lastError = new Error(`${attempt.label} 沒有辨識出文字`);
-    } catch (error) {
-      lastError = error;
-      console.warn("OCR attempt failed:", attempt.lang, error);
-    }
-  }
-
-  throw lastError || new Error("OCR 無法辨識");
-}
-
-async function runOcrRecognition() {
-  if (typeof gbOcrEnsureStyles === "function") gbOcrEnsureStyles();
-  if (typeof gbOcrDefaultDate === "function") gbOcrDefaultDate();
-
-  const input = document.getElementById("ocrImageInput");
-  const output = document.getElementById("ocrTextOutput");
-  const status = document.getElementById("ocrStatus");
-
-  if (!input?.files?.[0]) {
-    alert("請先選擇圖片。");
-    return;
-  }
-
-  if (typeof Tesseract === "undefined") {
-    if (status) status.textContent = "OCR 模組沒有載入成功，請確認網路後重新整理。";
-    alert("OCR 模組沒有載入成功，請重新整理後再試。");
-    return;
-  }
-
-  if (status) status.textContent = "準備 OCR 辨識中…";
-
-  try {
-    const { text, lang } = await gbOcrRecognizeWithFallback(input.files[0], status);
-    if (output) output.value = text;
-
-    if (typeof gbOcrAutoParseAndRender === "function") {
-      gbOcrAutoParseAndRender(text);
-    } else {
-      const rows = typeof gbOcrParseText === "function" ? gbOcrParseText(text) : [];
-      if (typeof gbOcrRenderRows === "function") gbOcrRenderRows(rows);
-      if (status) status.textContent = `辨識完成（${lang}），已產生 ${rows.length} 筆候選結果。`;
-    }
-
-    if (status && status.textContent.includes("辨識完成")) {
-      status.textContent += ` 使用：${lang}`;
-    }
-  } catch (error) {
-    console.error("OCR failed:", error);
-    const message = error?.message || String(error);
-    if (status) {
-      status.innerHTML = `
-        辨識失敗。這通常是 OCR 字庫或 worker 載入失敗，不一定是圖片問題。<br>
-        錯誤：${String(message).slice(0, 220)}<br>
-        可先把截圖文字手動貼到下方「辨識文字 / 除錯用」，再按重新解析。
-      `;
-    }
-  }
-}
-
-function gbOcrBindButtonsHard() {
-  if (typeof gbOcrEnsureStyles === "function") gbOcrEnsureStyles();
-  if (typeof gbOcrDefaultDate === "function") gbOcrDefaultDate();
-
-  const runBtn = document.getElementById("runOcrBtn");
-  const parseBtn = document.getElementById("parseOcrTextBtn");
-  const clearBtn = document.getElementById("clearOcrBtn");
-  const confirmBtn = document.getElementById("confirmOcrOrdersBtn");
-  const imageInput = document.getElementById("ocrImageInput");
-
-  if (runBtn) {
-    runBtn.onclick = event => {
-      event.preventDefault();
-      runOcrRecognition();
-    };
-  }
-
-  if (parseBtn) {
-    parseBtn.onclick = event => {
-      event.preventDefault();
-      if (typeof gbOcrParseFromButton === "function") gbOcrParseFromButton();
-      else if (typeof parseOcrTextFromTextarea === "function") parseOcrTextFromTextarea();
-    };
-  }
-
-  if (clearBtn && typeof clearOcrAssistant === "function") {
-    clearBtn.onclick = event => {
-      event.preventDefault();
-      clearOcrAssistant();
-    };
-  }
-
-  if (confirmBtn && typeof confirmOcrOrders === "function") {
-    confirmBtn.onclick = event => {
-      event.preventDefault();
-      confirmOcrOrders();
-    };
-  }
-
-  if (imageInput && typeof previewOcrImage === "function") imageInput.onchange = previewOcrImage;
-}
-
-bindOcrAssistant = function() {
-  gbOcrBindButtonsHard();
-};
-
-document.addEventListener("DOMContentLoaded", () => {
-  setTimeout(gbOcrBindButtonsHard, 300);
-  setTimeout(gbOcrBindButtonsHard, 1200);
-});
 
 function gbDiagnostic() {
   return {
     version: window.GB_VERSION,
-    hasTesseract: typeof Tesseract !== "undefined",
-    hasOcrPanel: !!document.getElementById("ocr"),
-    hasRunBtn: !!document.getElementById("runOcrBtn"),
-    hasParseBtn: !!document.getElementById("parseOcrTextBtn"),
     firebaseReady: !!window.GB_FIREBASE?.ready,
-    authReady: !!window.GB_AUTH?.ready
+    authReady: !!window.GB_AUTH?.ready,
+    currentRole: window.GB_AUTH?.role,
+    currentUser: window.GB_AUTH?.user,
+    currentTab
   };
 }
+
 window.gbDiagnostic = gbDiagnostic;
-window.gbOcrRecognizeWithFallback = gbOcrRecognizeWithFallback;
