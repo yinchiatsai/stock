@@ -3069,126 +3069,27 @@ window.gbDiagnostic = function() {
 };
 
 
-/* GoldenBird Inventory v2.0.2｜後台品項管理與異動紀錄修正 */
-window.GB_VERSION = "goldenbird-inventory-v2.0.2-admin-history-fix";
+/* GoldenBird Inventory v2.0.3｜版面微調穩定版 */
+window.GB_VERSION = "goldenbird-inventory-v2.0.3-layout-polish";
 
-function getAdminItemContainer() {
-  return document.getElementById("adminItemList")
-    || document.getElementById("itemManageList")
-    || document.getElementById("manageItemList")
-    || document.getElementById("itemTableBody")
-    || document.getElementById("itemsTableBody")
-    || document.querySelector("[data-admin-item-list]");
-}
-
-function renderAdminItemsFallback() {
-  const container = getAdminItemContainer();
-  if (!container) return;
-
-  const items = (data.items || []).slice().sort((a, b) => {
-    const aDisabled = a.disabled ? 1 : 0;
-    const bDisabled = b.disabled ? 1 : 0;
-    if (aDisabled !== bDisabled) return aDisabled - bDisabled;
-    return String(a.name || "").localeCompare(String(b.name || ""), "zh-Hant");
+function removeTemporaryAdminItemCard() {
+  document.querySelectorAll("#adminContent .admin-section.card").forEach(section => {
+    const text = section.textContent || "";
+    if (text.includes("品項管理") && text.includes("顯示目前所有品項") && text.includes("載入中")) {
+      section.remove();
+    }
   });
-
-  if (!items.length) {
-    container.innerHTML = "目前尚無品項。";
-    return;
-  }
-
-  const rows = items.map(item => {
-    const status = item.disabled ? "停用" : "啟用";
-    const statusClass = item.disabled ? "warn" : "info";
-    return `
-      <tr>
-        <td>${escapeHtml(item.name || "")}</td>
-        <td>${escapeHtml(item.category || "")}</td>
-        <td>${escapeHtml(item.dept || "")}</td>
-        <td>${Number(item.stock) || 0}</td>
-        <td>${Number(item.safety) || 0}</td>
-        <td><span class="badge ${statusClass}">${status}</span></td>
-        <td>${escapeHtml(item.lastUpdatedBy || "-")}</td>
-      </tr>
-    `;
-  }).join("");
-
-  if (container.tagName === "TBODY") {
-    container.innerHTML = rows;
-  } else {
-    container.innerHTML = `
-      <div class="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>品項</th>
-              <th>分類</th>
-              <th>部門</th>
-              <th>庫存</th>
-              <th>安全</th>
-              <th>狀態</th>
-              <th>最後更新</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
-    `;
-  }
 }
 
-function ensureAdminItemContainerExists() {
-  if (getAdminItemContainer()) return;
+function clearHistoryRecordsStable() {
+  const role = String(window.GB_AUTH?.role || document.getElementById("roleSelect")?.value || "").toLowerCase();
 
-  const adminContent = document.getElementById("adminContent");
-  if (!adminContent) return;
-
-  const section = document.createElement("div");
-  section.className = "admin-section card";
-  section.innerHTML = `
-    <h3>品項管理</h3>
-    <p class="note">顯示目前所有品項，與庫存總覽使用同一份資料。</p>
-    <div id="adminItemList" data-admin-item-list>載入中…</div>
-  `;
-
-  const firstOrderSection = adminContent.querySelector(".order-section");
-  if (firstOrderSection) {
-    adminContent.insertBefore(section, firstOrderSection);
-  } else {
-    adminContent.appendChild(section);
-  }
-}
-
-function renderAdminItemsFixed() {
-  ensureAdminItemContainerExists();
-
-  try {
-    if (typeof renderManageItems === "function") renderManageItems();
-    if (typeof renderAdminItems === "function" && renderAdminItems !== renderAdminItemsFixed) renderAdminItems();
-    if (typeof renderItemsManage === "function") renderItemsManage();
-  } catch (error) {
-    console.warn("Original admin item renderer failed, using fallback.", error);
-  }
-
-  const container = getAdminItemContainer();
-  if (!container) return;
-
-  const text = (container.textContent || "").trim();
-  if (!text || text.includes("尚無") || text.includes("載入中")) {
-    renderAdminItemsFallback();
-  }
-}
-
-function clearHistoryRecordsFixed() {
-  const role = document.getElementById("roleSelect")?.value || window.GB_AUTH?.role || "staff";
-  const normalized = String(role).toLowerCase();
-
-  if (!["boss", "qing", "emily"].includes(normalized)) {
+  if (!["boss", "qing", "emily"].includes(role)) {
     showToast("只有管理員可清除異動紀錄");
     return;
   }
 
-  const ok = window.confirm("確定要清除所有測試異動紀錄嗎？\n\n此操作只會清除「最近庫存異動」，不會影響目前庫存、品項或在途商品。");
+  const ok = window.confirm("確定要清除所有測試異動紀錄嗎？\n\n只會清除「最近庫存異動」，不會影響目前庫存、品項或在途商品。");
   if (!ok) return;
 
   data.history = [];
@@ -3201,64 +3102,49 @@ function clearHistoryRecordsFixed() {
   showToast("已清除庫存異動紀錄");
 }
 
-function forceRefreshHistory() {
+function refreshHistoryAfterStockChange() {
   if (typeof renderHistoryPage === "function") renderHistoryPage();
-  const historyList = document.getElementById("historyPageList");
-  if (historyList && (!data.history || !data.history.length)) {
-    historyList.innerHTML = "尚無庫存異動紀錄";
-  }
 }
 
-const gbV202ConfirmQuickStockUpdate = typeof confirmQuickStockUpdate === "function" ? confirmQuickStockUpdate : null;
-if (gbV202ConfirmQuickStockUpdate) {
+const gbV203ConfirmQuickStockUpdate = typeof confirmQuickStockUpdate === "function" ? confirmQuickStockUpdate : null;
+if (gbV203ConfirmQuickStockUpdate) {
   confirmQuickStockUpdate = function() {
-    gbV202ConfirmQuickStockUpdate();
-    forceRefreshHistory();
-    renderAdminItemsFixed();
+    gbV203ConfirmQuickStockUpdate();
+    refreshHistoryAfterStockChange();
   };
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  removeTemporaryAdminItemCard();
+
   const clearBtn = document.getElementById("clearHistoryBtn");
   if (clearBtn) {
     clearBtn.onclick = event => {
       event.preventDefault();
-      clearHistoryRecordsFixed();
+      clearHistoryRecordsStable();
     };
   }
-
-  setTimeout(() => {
-    renderAdminItemsFixed();
-    forceRefreshHistory();
-  }, 400);
-
-  setTimeout(() => {
-    renderAdminItemsFixed();
-    forceRefreshHistory();
-  }, 1200);
 });
 
-const gbV202RenderAll = renderAll;
+const gbV203RenderAll = renderAll;
 renderAll = function() {
-  gbV202RenderAll();
-  renderAdminItemsFixed();
-  forceRefreshHistory();
+  gbV203RenderAll();
+  removeTemporaryAdminItemCard();
 
   const clearBtn = document.getElementById("clearHistoryBtn");
   if (clearBtn) {
     clearBtn.onclick = event => {
       event.preventDefault();
-      clearHistoryRecordsFixed();
+      clearHistoryRecordsStable();
     };
   }
+
+  refreshHistoryAfterStockChange();
 };
 
 window.gbDiagnostic = function() {
   return {
     version: window.GB_VERSION,
-    itemCount: data.items?.length || 0,
-    adminItemContainerFound: !!getAdminItemContainer(),
-    historyCount: data.history?.length || 0,
     firebaseReady: !!window.GB_FIREBASE?.ready,
     authReady: !!window.GB_AUTH?.ready,
     role: window.GB_AUTH?.role || document.getElementById("roleSelect")?.value,
