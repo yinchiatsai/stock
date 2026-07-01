@@ -2284,209 +2284,148 @@ function gbDiagnostic() {
 window.gbDiagnostic = gbDiagnostic;
 
 
-/* GoldenBird Inventory v1.0 Stable｜正式穩定版：移除 AI/OCR 入口 */
-window.GB_VERSION = "goldenbird-inventory-v1.0-stable";
+/* GoldenBird Inventory v1.1 Stable */
+window.GB_VERSION = "goldenbird-inventory-v1.1-stable";
 
-function ensureStableLaunchStyles() {
-  if (document.getElementById("stableLaunchStyles")) return;
-
+function ensureV11StableStyles() {
+  if (document.getElementById("v11StableStyles")) return;
   const style = document.createElement("style");
-  style.id = "stableLaunchStyles";
+  style.id = "v11StableStyles";
   style.textContent = `
-    [data-tab="ocr"],
-    #ocr,
-    #resetDemoBtn,
-    #orderScreenshotInput,
-    #screenshotPreview {
-      display: none !important;
-    }
-
-    #adminContent .order-section,
-    #adminContent .admin-section {
-      width: 100%;
-      box-sizing: border-box;
-    }
-
-    #adminContent .order-input-grid {
-      display: grid;
-      grid-template-columns: 1fr !important;
-      gap: 18px;
-      width: 100%;
-    }
-
-    #adminContent .order-input-grid > .card {
-      width: 100%;
-      box-sizing: border-box;
-    }
-
-    @media (max-width: 760px) {
-      #inventoryGrid .inventory-list {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-      }
-
-      #inventoryGrid .inventory-row.header {
-        display: none !important;
-      }
-
-      #inventoryGrid .inventory-row {
-        display: grid !important;
-        grid-template-columns: 1fr auto;
-        grid-template-areas:
-          "name status"
-          "numbers numbers";
-        gap: 6px 10px;
-        padding: 10px 12px !important;
-        border-radius: 14px;
-        min-height: auto !important;
-      }
-
-      #inventoryGrid .inventory-name {
-        grid-area: name;
-        min-width: 0;
-      }
-
-      #inventoryGrid .inventory-name strong {
-        display: block;
-        font-size: 16px;
-        line-height: 1.25;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      #inventoryGrid .meta-tags {
-        display: flex;
-        flex-wrap: nowrap;
-        gap: 5px;
-        margin-top: 4px;
-        overflow: hidden;
-      }
-
-      #inventoryGrid .meta-tag {
-        font-size: 11px;
-        padding: 3px 7px;
-        white-space: nowrap;
-        max-width: 88px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      #inventoryGrid .meta-tag:nth-child(n+4) {
-        display: none;
-      }
-
-      #inventoryGrid .inventory-row > div:nth-child(5) {
-        grid-area: status;
-        align-self: start;
-        justify-self: end;
-      }
-
-      #inventoryGrid .inventory-row > div:nth-child(2),
-      #inventoryGrid .inventory-row > div:nth-child(3),
-      #inventoryGrid .inventory-row > div:nth-child(4),
-      #inventoryGrid .inventory-row > div:nth-child(6) {
-        grid-area: numbers;
-      }
-
-      #inventoryGrid .inventory-row > div:nth-child(2) {
-        justify-self: start;
-      }
-
-      #inventoryGrid .inventory-row > div:nth-child(3) {
-        justify-self: start;
-        margin-left: 74px;
-      }
-
-      #inventoryGrid .inventory-row > div:nth-child(4) {
-        justify-self: start;
-        margin-left: 148px;
-      }
-
-      #inventoryGrid .inventory-row > div:nth-child(6) {
-        justify-self: end;
-      }
-
-      #inventoryGrid .stock-cell::before {
-        content: "庫 ";
-        color: var(--muted);
-        font-weight: 600;
-      }
-
-      #inventoryGrid .incoming-cell::before {
-        content: "途 ";
-        color: var(--muted);
-        font-weight: 600;
-      }
-
-      #inventoryGrid .safety-cell::before {
-        content: "安 ";
-        color: var(--muted);
-        font-weight: 600;
-      }
-
-      #inventoryGrid .suggest-cell::before {
-        content: "補 ";
-        color: var(--muted);
-        font-weight: 600;
-      }
-
-      #inventoryGrid .safety-input {
-        width: 44px !important;
-        padding: 2px 4px !important;
-        font-size: 13px !important;
-        text-align: center;
-      }
-
-      #inventoryGrid .badge {
-        font-size: 12px;
-        padding: 4px 8px;
-        white-space: nowrap;
-      }
-    }
-  `;
+    [data-tab="ocr"],#ocr,#resetDemoBtn,.mapping-section,#orderScreenshotInput,#screenshotPreview{display:none!important}
+    #adminContent .order-section,#adminContent .admin-section{width:100%;box-sizing:border-box}
+    #adminContent .order-input-grid{display:grid;grid-template-columns:1fr!important;gap:18px;width:100%}
+    #adminContent .order-input-grid>.card{width:100%;box-sizing:border-box}
+    .quick-stock-btn{margin-top:6px;padding:5px 9px;font-size:12px;border-radius:999px}
+    .inventory-row.status-good{background:#fff}.inventory-row.status-warn{background:#fffaf0}.inventory-row.status-bad{background:#fff3f0}.inventory-row.status-info{background:#f1f8fb}
+    @media(max-width:760px){
+      #inventoryGrid .inventory-list{display:flex;flex-direction:column;gap:8px}
+      #inventoryGrid .inventory-row.header{display:none!important}
+      #inventoryGrid .inventory-row{display:grid!important;grid-template-columns:1fr auto;grid-template-areas:"name status" "numbers action";gap:6px 8px;padding:9px 11px!important;border-radius:14px;min-height:auto!important}
+      #inventoryGrid .inventory-name{grid-area:name;min-width:0}
+      #inventoryGrid .inventory-name strong{display:block;font-size:15.5px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      #inventoryGrid .meta-tags{display:flex;flex-wrap:nowrap;gap:5px;margin-top:4px;overflow:hidden}
+      #inventoryGrid .meta-tag{font-size:11px;padding:3px 7px;white-space:nowrap;max-width:86px;overflow:hidden;text-overflow:ellipsis}
+      #inventoryGrid .meta-tag:nth-child(n+4){display:none}
+      #inventoryGrid .inventory-row>div:nth-child(5){grid-area:status;align-self:start;justify-self:end}
+      #inventoryGrid .inventory-row>div:nth-child(2),#inventoryGrid .inventory-row>div:nth-child(3),#inventoryGrid .inventory-row>div:nth-child(4),#inventoryGrid .inventory-row>div:nth-child(6){grid-area:numbers}
+      #inventoryGrid .inventory-row>div:nth-child(2){justify-self:start}
+      #inventoryGrid .inventory-row>div:nth-child(3){justify-self:start;margin-left:68px}
+      #inventoryGrid .inventory-row>div:nth-child(4){justify-self:start;margin-left:136px}
+      #inventoryGrid .inventory-row>div:nth-child(6){justify-self:start;margin-left:204px}
+      #inventoryGrid .stock-cell::before{content:"庫 ";color:var(--muted);font-weight:600}
+      #inventoryGrid .incoming-cell::before{content:"途 ";color:var(--muted);font-weight:600}
+      #inventoryGrid .safety-cell::before{content:"安 ";color:var(--muted);font-weight:600}
+      #inventoryGrid .suggest-cell::before{content:"補 ";color:var(--muted);font-weight:600}
+      #inventoryGrid .num-cell,#inventoryGrid .suggest-cell{font-size:13.5px;line-height:1.4}
+      #inventoryGrid .badge{font-size:12px;padding:4px 8px;white-space:nowrap}
+      #inventoryGrid .quick-stock-btn{grid-area:action;justify-self:end;align-self:end;margin-top:0;padding:4px 8px;font-size:11.5px}
+      #inventoryGrid .safety-input{width:44px!important;padding:2px 4px!important;font-size:13px!important;text-align:center}
+    }`;
   document.head.appendChild(style);
 }
 
-function removeStableUnusedUI() {
-  const ocrTab = document.querySelector('[data-tab="ocr"]');
-  if (ocrTab) ocrTab.remove();
-
-  const ocrSection = document.getElementById("ocr");
-  if (ocrSection) ocrSection.remove();
-
-  const resetDemoBtn = document.getElementById("resetDemoBtn");
-  if (resetDemoBtn) resetDemoBtn.remove();
-
-  const screenshotCard = document.getElementById("orderScreenshotInput")?.closest(".card");
-  if (screenshotCard) screenshotCard.remove();
-
-  if (currentTab === "ocr") switchTab("overview");
+function removeV11UnusedUI(){
+  document.querySelector('[data-tab="ocr"]')?.remove();
+  document.getElementById("ocr")?.remove();
+  document.getElementById("resetDemoBtn")?.remove();
+  document.querySelector(".mapping-section")?.remove();
+  document.getElementById("orderScreenshotInput")?.closest(".card")?.remove();
+  if(currentTab==="ocr") switchTab("overview");
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  ensureStableLaunchStyles();
-  removeStableUnusedUI();
-  setTimeout(removeStableUnusedUI, 600);
-});
-
-const gbStableRenderAll = renderAll;
-renderAll = function() {
-  gbStableRenderAll();
-  ensureStableLaunchStyles();
-  removeStableUnusedUI();
+getStatus = function(item){
+  const incoming=getIncomingQty(item.id);
+  const stock=Number(item.stock)||0;
+  const safety=Number(item.safety)||0;
+  if(stock===0 && incoming<=0) return {text:"缺貨",type:"bad"};
+  if(stock<safety && incoming>0) return {text:"已叫貨",type:"info"};
+  if(stock<=safety) return {text:"注意補貨",type:"warn"};
+  return {text:"正常",type:"good"};
 };
 
-function gbDiagnostic() {
-  return {
-    version: window.GB_VERSION,
-    firebaseReady: !!window.GB_FIREBASE?.ready,
-    authReady: !!window.GB_AUTH?.ready,
-    currentRole: window.GB_AUTH?.role,
-    currentUser: window.GB_AUTH?.user,
-    currentTab
-  };
+function openQuickStockModal(itemId){
+  const item=getItem(itemId); if(!item) return;
+  document.getElementById("quickStockItemId").value=item.id;
+  document.getElementById("quickStockItemText").textContent=item.name;
+  document.getElementById("quickStockOldQty").value=item.stock;
+  document.getElementById("quickStockNewQty").value=item.stock;
+  document.getElementById("quickStockReason").value="盤點更新";
+  openModal("quickStockModal");
 }
 
-window.gbDiagnostic = gbDiagnostic;
+function confirmQuickStockUpdate(){
+  const item=getItem(document.getElementById("quickStockItemId").value);
+  const qty=Number(document.getElementById("quickStockNewQty").value);
+  const reason=document.getElementById("quickStockReason").value||"盤點更新";
+  if(!item || Number.isNaN(qty) || qty<0){showToast("請輸入正確庫存數量");return;}
+  const oldStock=Number(item.stock)||0;
+  item.stock=qty;
+  addStockHistory(item,oldStock,qty,reason);
+  lastUpdatedItemId=item.id;
+  saveData();
+  closeModal("quickStockModal");
+  renderAll();
+  showToast(`${item.name} 已更新為 ${qty}`);
+}
+
+const gbV11RenderInventory=renderInventory;
+renderInventory=function(){
+  gbV11RenderInventory();
+  const role=document.getElementById("roleSelect")?.value||"staff";
+  const canQuickEdit=role==="process"||role==="boss"||role==="qing"||role==="emily";
+  document.querySelectorAll("#inventoryGrid .inventory-row:not(.header)").forEach(row=>{
+    const name=row.querySelector(".inventory-name strong")?.textContent||"";
+    const item=data.items.find(i=>i.name===name && !i.disabled);
+    if(!item) return;
+    row.classList.add(`status-${getStatus(item).type}`);
+    if(canQuickEdit && !row.querySelector(".quick-stock-btn")){
+      const btn=document.createElement("button");
+      btn.type="button"; btn.className="secondary small quick-stock-btn"; btn.textContent="盤點";
+      btn.addEventListener("click",()=>openQuickStockModal(item.id));
+      row.appendChild(btn);
+    }
+  });
+};
+
+createNewItem=function({name,category,safety,dept,note,shared,stock}){
+  if(!name){showToast("請輸入品項名稱");return;}
+  const initialStock=Number(stock)||0;
+  const newItem={
+    id:`I${Date.now()}`,name,category,stock:initialStock,safety:Number(safety)||0,
+    dept:dept||category,mode:shared?"共用型":"觀察型",note:note||"",disabled:false,
+    createdAt:Date.now(),lastUpdatedBy:getCurrentUserLabel(),lastUpdatedEmail:getCurrentUserEmail(),
+    lastUpdatedAt:Date.now(),lastUpdateType:"新增品項"
+  };
+  data.items.push(newItem); lastCreatedItemId=newItem.id; autoSelectNewItemInSearchFields(newItem);
+  if(initialStock>0) addStockHistory(newItem,0,initialStock,"新增品項初始庫存");
+  saveData(); renderAll(); showToast("新品項已新增");
+};
+
+addNewItemFromManage=function(){
+  const name=document.getElementById("newItemNameManage").value.trim();
+  const categoryInput=document.getElementById("newCategoryInput").value.trim();
+  const categorySelect=document.getElementById("newItemCategoryManage");
+  const category=categoryInput||categorySelect.value;
+  const safety=Number(document.getElementById("newItemSafetyManage").value)||0;
+  const stock=Number(document.getElementById("newItemStockManage")?.value||0)||0;
+  const dept=document.getElementById("newItemDeptManage").value.trim()||category;
+  if(categoryInput && ![...categorySelect.options].some(o=>o.value===categoryInput)){categorySelect.appendChild(new Option(categoryInput,categoryInput));categorySelect.value=categoryInput;}
+  const note=document.getElementById("newItemNoteManage").value.trim();
+  const shared=document.getElementById("newItemSharedManage").checked;
+  createNewItem({name,category,safety,dept,note,shared,stock});
+  ["newItemNameManage","newItemSafetyManage","newItemStockManage","newItemDeptManage","newItemNoteManage","newCategoryInput"].forEach(id=>{const el=document.getElementById(id); if(el) el.value="";});
+  document.getElementById("newItemSharedManage").checked=false;
+};
+
+document.addEventListener("DOMContentLoaded",()=>{
+  ensureV11StableStyles(); removeV11UnusedUI();
+  document.getElementById("cancelQuickStockBtn")?.addEventListener("click",()=>closeModal("quickStockModal"));
+  document.getElementById("confirmQuickStockBtn")?.addEventListener("click",confirmQuickStockUpdate);
+});
+
+const gbV11RenderAll=renderAll;
+renderAll=function(){gbV11RenderAll();ensureV11StableStyles();removeV11UnusedUI();};
+
+window.gbDiagnostic=function(){return {version:window.GB_VERSION,firebaseReady:!!window.GB_FIREBASE?.ready,authReady:!!window.GB_AUTH?.ready,currentRole:window.GB_AUTH?.role,currentUser:window.GB_AUTH?.user,currentTab};};
+ㄋ
