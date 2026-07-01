@@ -3367,3 +3367,164 @@ renderAll = function() {
   gbOldRenderAllForLaunchCleanup();
   ensureLaunchCleanupStyles();
 };
+
+
+
+/* GoldenBird Inventory v1.6：OCR 載入穩定版 */
+window.GB_VERSION = "goldenbird-inventory-v1.6-ocr-stable-loader";
+
+function gbOcrWorkerOptions(statusEl) {
+  return {
+    workerPath: "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js",
+    corePath: "https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core.wasm.js",
+    langPath: "https://tessdata.projectnaptha.com/4.0.0",
+    logger: message => {
+      if (!statusEl) return;
+      if (message.status === "loading tesseract core") statusEl.textContent = "載入 OCR 核心中…";
+      if (message.status === "initializing tesseract") statusEl.textContent = "初始化 OCR 中…";
+      if (message.status === "loading language traineddata") statusEl.textContent = "下載中文字庫中…第一次可能較久。";
+      if (message.status === "recognizing text") {
+        statusEl.textContent = `辨識中… ${Math.round((message.progress || 0) * 100)}%`;
+      }
+    }
+  };
+}
+
+async function gbOcrRecognizeWithFallback(file, statusEl) {
+  const attempts = [
+    { lang: "chi_sim+eng", label: "簡中+英文" },
+    { lang: "chi_tra+eng", label: "繁中+英文" },
+    { lang: "eng", label: "英文備援" }
+  ];
+
+  let lastError = null;
+
+  for (const attempt of attempts) {
+    try {
+      if (statusEl) statusEl.textContent = `OCR 載入中：${attempt.label}`;
+      const result = await Tesseract.recognize(file, attempt.lang, gbOcrWorkerOptions(statusEl));
+      const text = result?.data?.text || "";
+      if (text.trim()) return { text, lang: attempt.label };
+      lastError = new Error(`${attempt.label} 沒有辨識出文字`);
+    } catch (error) {
+      lastError = error;
+      console.warn("OCR attempt failed:", attempt.lang, error);
+    }
+  }
+
+  throw lastError || new Error("OCR 無法辨識");
+}
+
+async function runOcrRecognition() {
+  if (typeof gbOcrEnsureStyles === "function") gbOcrEnsureStyles();
+  if (typeof gbOcrDefaultDate === "function") gbOcrDefaultDate();
+
+  const input = document.getElementById("ocrImageInput");
+  const output = document.getElementById("ocrTextOutput");
+  const status = document.getElementById("ocrStatus");
+
+  if (!input?.files?.[0]) {
+    alert("請先選擇圖片。");
+    return;
+  }
+
+  if (typeof Tesseract === "undefined") {
+    if (status) status.textContent = "OCR 模組沒有載入成功，請確認網路後重新整理。";
+    alert("OCR 模組沒有載入成功，請重新整理後再試。");
+    return;
+  }
+
+  if (status) status.textContent = "準備 OCR 辨識中…";
+
+  try {
+    const { text, lang } = await gbOcrRecognizeWithFallback(input.files[0], status);
+    if (output) output.value = text;
+
+    if (typeof gbOcrAutoParseAndRender === "function") {
+      gbOcrAutoParseAndRender(text);
+    } else {
+      const rows = typeof gbOcrParseText === "function" ? gbOcrParseText(text) : [];
+      if (typeof gbOcrRenderRows === "function") gbOcrRenderRows(rows);
+      if (status) status.textContent = `辨識完成（${lang}），已產生 ${rows.length} 筆候選結果。`;
+    }
+
+    if (status && status.textContent.includes("辨識完成")) {
+      status.textContent += ` 使用：${lang}`;
+    }
+  } catch (error) {
+    console.error("OCR failed:", error);
+    const message = error?.message || String(error);
+    if (status) {
+      status.innerHTML = `
+        辨識失敗。這通常是 OCR 字庫或 worker 載入失敗，不一定是圖片問題。<br>
+        錯誤：${String(message).slice(0, 220)}<br>
+        可先把截圖文字手動貼到下方「辨識文字 / 除錯用」，再按重新解析。
+      `;
+    }
+  }
+}
+
+function gbOcrBindButtonsHard() {
+  if (typeof gbOcrEnsureStyles === "function") gbOcrEnsureStyles();
+  if (typeof gbOcrDefaultDate === "function") gbOcrDefaultDate();
+
+  const runBtn = document.getElementById("runOcrBtn");
+  const parseBtn = document.getElementById("parseOcrTextBtn");
+  const clearBtn = document.getElementById("clearOcrBtn");
+  const confirmBtn = document.getElementById("confirmOcrOrdersBtn");
+  const imageInput = document.getElementById("ocrImageInput");
+
+  if (runBtn) {
+    runBtn.onclick = event => {
+      event.preventDefault();
+      runOcrRecognition();
+    };
+  }
+
+  if (parseBtn) {
+    parseBtn.onclick = event => {
+      event.preventDefault();
+      if (typeof gbOcrParseFromButton === "function") gbOcrParseFromButton();
+      else if (typeof parseOcrTextFromTextarea === "function") parseOcrTextFromTextarea();
+    };
+  }
+
+  if (clearBtn && typeof clearOcrAssistant === "function") {
+    clearBtn.onclick = event => {
+      event.preventDefault();
+      clearOcrAssistant();
+    };
+  }
+
+  if (confirmBtn && typeof confirmOcrOrders === "function") {
+    confirmBtn.onclick = event => {
+      event.preventDefault();
+      confirmOcrOrders();
+    };
+  }
+
+  if (imageInput && typeof previewOcrImage === "function") imageInput.onchange = previewOcrImage;
+}
+
+bindOcrAssistant = function() {
+  gbOcrBindButtonsHard();
+};
+
+document.addEventListener("DOMContentLoaded", () => {
+  setTimeout(gbOcrBindButtonsHard, 300);
+  setTimeout(gbOcrBindButtonsHard, 1200);
+});
+
+function gbDiagnostic() {
+  return {
+    version: window.GB_VERSION,
+    hasTesseract: typeof Tesseract !== "undefined",
+    hasOcrPanel: !!document.getElementById("ocr"),
+    hasRunBtn: !!document.getElementById("runOcrBtn"),
+    hasParseBtn: !!document.getElementById("parseOcrTextBtn"),
+    firebaseReady: !!window.GB_FIREBASE?.ready,
+    authReady: !!window.GB_AUTH?.ready
+  };
+}
+window.gbDiagnostic = gbDiagnostic;
+window.gbOcrRecognizeWithFallback = gbOcrRecognizeWithFallback;
