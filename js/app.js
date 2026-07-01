@@ -2970,3 +2970,100 @@ renderAll=function(){
 };
 
 window.gbDiagnostic=function(){return {version:window.GB_VERSION,firebaseReady:!!window.GB_FIREBASE?.ready,authReady:!!window.GB_AUTH?.ready,currentRole:window.GB_AUTH?.role,currentUser:window.GB_AUTH?.user,currentTab};};
+
+
+/* GoldenBird Inventory v2.0.1｜全員可盤點＋管理權限修正 */
+window.GB_VERSION = "goldenbird-inventory-v2.0.1-all-staff-can-audit";
+
+function normalizeRoleValue(role) {
+  return String(role || "").trim().toLowerCase();
+}
+
+function isAdminRole(role) {
+  const normalized = normalizeRoleValue(role || window.GB_AUTH?.role || document.getElementById("roleSelect")?.value);
+  return ["boss", "qing", "emily"].includes(normalized);
+}
+
+function canAuditStock() {
+  // 正式版：所有已登入 / 已選身份者都可以盤點，靠異動紀錄追蹤責任
+  return true;
+}
+
+const gbV201RenderInventory = renderInventory;
+renderInventory = function() {
+  gbV201RenderInventory();
+
+  document.querySelectorAll("#inventoryGrid .inventory-row:not(.header)").forEach(row => {
+    const name = row.querySelector(".inventory-name strong")?.textContent || "";
+    const item = data.items.find(i => i.name === name && !i.disabled);
+    if (!item) return;
+
+    if (typeof getStatus === "function") {
+      row.classList.add(`status-${getStatus(item).type}`);
+    }
+
+    if (canAuditStock() && !row.querySelector(".quick-stock-btn")) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "secondary small quick-stock-btn";
+      btn.title = "快速盤點";
+      btn.setAttribute("aria-label", "快速盤點");
+      btn.addEventListener("click", () => openQuickStockModal(item.id));
+      row.appendChild(btn);
+    }
+  });
+};
+
+// 修正管理後台權限：Emily / 老闆 / 青 可進入
+const gbV201RenderAdmin = typeof renderAdmin === "function" ? renderAdmin : null;
+if (gbV201RenderAdmin) {
+  renderAdmin = function() {
+    const adminContent = document.getElementById("adminContent");
+    const adminLocked = document.getElementById("adminLocked");
+
+    if (isAdminRole()) {
+      if (adminContent) adminContent.classList.remove("hidden");
+      if (adminLocked) adminLocked.classList.add("hidden");
+    } else {
+      if (adminContent) adminContent.classList.add("hidden");
+      if (adminLocked) adminLocked.classList.remove("hidden");
+    }
+
+    gbV201RenderAdmin();
+  };
+}
+
+function unlockAdminByRole() {
+  const adminContent = document.getElementById("adminContent");
+  const adminLocked = document.getElementById("adminLocked");
+
+  if (isAdminRole()) {
+    if (adminContent) adminContent.classList.remove("hidden");
+    if (adminLocked) adminLocked.classList.add("hidden");
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  setTimeout(unlockAdminByRole, 300);
+  setTimeout(unlockAdminByRole, 1000);
+});
+
+const gbV201RenderAll = renderAll;
+renderAll = function() {
+  gbV201RenderAll();
+  unlockAdminByRole();
+};
+
+window.gbDiagnostic = function() {
+  return {
+    version: window.GB_VERSION,
+    role: window.GB_AUTH?.role || document.getElementById("roleSelect")?.value,
+    normalizedRole: normalizeRoleValue(window.GB_AUTH?.role || document.getElementById("roleSelect")?.value),
+    isAdmin: isAdminRole(),
+    canAuditStock: canAuditStock(),
+    firebaseReady: !!window.GB_FIREBASE?.ready,
+    authReady: !!window.GB_AUTH?.ready,
+    currentUser: window.GB_AUTH?.user,
+    currentTab
+  };
+};
