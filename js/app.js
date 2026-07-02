@@ -5989,59 +5989,172 @@ window.GB_VERSION = "goldenbird-inventory-v3.0.1-firebase-duplicate-fix";
   });
 })();
 
-/* GoldenBird Inventory v3.0.3｜後台分頁分類修正＋同步診斷文字 */
+/* GoldenBird Inventory v3.0.4｜後台分頁安全修正＋同步診斷文字 */
 (function(){
-  function gbFixAdminSectionGroups(){
-    const adminContent = document.getElementById("adminContent");
-    if(!adminContent) return;
-
-    [...adminContent.children].forEach(section=>{
-      if(section.id === "adminSubTabs") return;
-      const text = (section.textContent || "").trim();
-
-      // 成本/報表/資料匯出優先歸到成本報表，避免被叫貨管理吃掉
-      if(text.includes("成本報表") || text.includes("資料匯出") || text.includes("匯出 Excel") || text.includes("本月叫貨成本") || text.includes("年叫貨成本")){
-        section.dataset.adminGroup = "costs";
-        return;
-      }
-
-      if(text.includes("品項管理") || text.includes("新增品項") || text.includes("不想再列入庫存的品項")){
-        section.dataset.adminGroup = "items";
-        return;
-      }
-
-      if(text.includes("叫貨管理") || text.includes("手動新增叫貨") || text.includes("叫貨紀錄")){
-        section.dataset.adminGroup = "orders";
-        return;
-      }
-    });
-
-    const current = localStorage.getItem("gbAdminSubTab") || "items";
-    if(typeof gbSwitchAdminSubTab === "function"){
-      gbSwitchAdminSubTab(current);
-    }
-  }
-
+  // 先建立診斷文字函式，避免後續任何錯誤導致無法查同步
   window.gbSyncDebugText = function(){
-    const result = typeof gbSyncDebug === "function" ? gbSyncDebug() : {
-      syncText: document.getElementById("syncStatusText")?.textContent,
-      firebaseReady: !!window.GB_FIREBASE?.ready,
-      authReady: !!window.GB_AUTH?.ready,
-      user: window.GB_AUTH?.user,
-      role: window.GB_AUTH?.role,
-      lastSyncError: window.lastSyncError || null
-    };
+    let result = {};
+    try{
+      result = typeof gbSyncDebug === "function" ? gbSyncDebug() : {
+        syncText: document.getElementById("syncStatusText")?.textContent,
+        firebaseReady: !!window.GB_FIREBASE?.ready,
+        authReady: !!window.GB_AUTH?.ready,
+        user: window.GB_AUTH?.user || null,
+        role: window.GB_AUTH?.role || null,
+        hasDb: !!window.GB_FIREBASE?.db,
+        lastSyncError: window.lastSyncError || null
+      };
+    }catch(error){
+      result = {
+        error: String(error),
+        syncText: document.getElementById("syncStatusText")?.textContent,
+        lastSyncError: window.lastSyncError || null
+      };
+    }
     return JSON.stringify(result, null, 2);
   };
 
+  function findAdminSections(){
+    const adminContent = document.getElementById("adminContent");
+    if(!adminContent) return null;
+
+    const all = [...adminContent.children].filter(el => el.id !== "adminSubTabs");
+
+    const sections = {
+      items: [],
+      orders: [],
+      costs: []
+    };
+
+    all.forEach(el => {
+      const text = (el.textContent || "").trim();
+
+      if(text.includes("品項管理") || text.includes("新增品項") || text.includes("停實建議停用")){
+        sections.items.push(el);
+        return;
+      }
+
+      if(text.includes("叫貨管理") || text.includes("手動新增叫貨") || text.includes("新增叫貨紀錄") || text.includes("叫貨紀錄")){
+        sections.orders.push(el);
+        return;
+      }
+
+      if(text.includes("資料匯出") || text.includes("成本報表") || text.includes("匯出 Excel") || text.includes("本月叫貨成本") || text.includes("成本")){
+        sections.costs.push(el);
+        return;
+      }
+
+      // 未明確判斷的區塊不要隱藏，避免功能消失
+      el.dataset.adminGroup = "always";
+    });
+
+    sections.items.forEach(el => el.dataset.adminGroup = "items");
+    sections.orders.forEach(el => el.dataset.adminGroup = "orders");
+    sections.costs.forEach(el => el.dataset.adminGroup = "costs");
+
+    return sections;
+  }
+
+  function ensureAdminTabsSafe(){
+    const adminContent = document.getElementById("adminContent");
+    if(!adminContent) return;
+
+    let tabs = document.getElementById("adminSubTabs");
+    if(!tabs){
+      tabs = document.createElement("div");
+      tabs.id = "adminSubTabs";
+      tabs.className = "admin-sub-tabs";
+      tabs.innerHTML = `
+        <button type="button" class="admin-sub-tab active" data-admin-tab="items">📦 品項管理</button>
+        <button type="button" class="admin-sub-tab" data-admin-tab="orders">🚚 叫貨管理</button>
+        <button type="button" class="admin-sub-tab" data-admin-tab="costs">💰 成本報表</button>
+      `;
+      adminContent.insertAdjacentElement("afterbegin", tabs);
+    }
+
+    findAdminSections();
+
+    tabs.querySelectorAll(".admin-sub-tab").forEach(btn=>{
+      btn.onclick = () => switchAdminTabSafe(btn.dataset.adminTab);
+    });
+
+    switchAdminTabSafe(localStorage.getItem("gbAdminSubTab") || "items");
+  }
+
+  function switchAdminTabSafe(tab){
+    const adminContent = document.getElementById("adminContent");
+    const tabs = document.getElementById("adminSubTabs");
+    if(!adminContent || !tabs) return;
+
+    tabs.querySelectorAll(".admin-sub-tab").forEach(btn=>{
+      btn.classList.toggle("active", btn.dataset.adminTab === tab);
+    });
+
+    [...adminContent.children].forEach(section=>{
+      if(section.id === "adminSubTabs") return;
+      const group = section.dataset.adminGroup || "always";
+      section.classList.toggle("admin-section-hidden", group !== "always" && group !== tab);
+    });
+
+    localStorage.setItem("gbAdminSubTab", tab);
+
+    if(tab === "items" && typeof renderItemManageTable === "function") setTimeout(renderItemManageTable, 50);
+    if(tab === "orders" && typeof renderAdminOrders === "function") setTimeout(renderAdminOrders, 50);
+    if(tab === "costs" && typeof renderCostReport === "function") setTimeout(renderCostReport, 50);
+  }
+
+  function applyAdminTabsSafeCss(){
+    if(document.getElementById("gbAdminTabsSafeCss")) return;
+    const style = document.createElement("style");
+    style.id = "gbAdminTabsSafeCss";
+    style.textContent = `
+      .admin-sub-tabs{
+        display:grid;
+        grid-template-columns:repeat(3,1fr);
+        gap:10px;
+        margin:0 0 18px;
+        background:rgba(248,247,243,.96);
+        padding:10px 0;
+      }
+      .admin-sub-tab{
+        border:1px solid var(--line);
+        background:#fff;
+        color:var(--text);
+        border-radius:16px;
+        padding:12px 10px;
+        font-weight:800;
+        cursor:pointer;
+      }
+      .admin-sub-tab.active{
+        background:var(--main);
+        color:#fff;
+        border-color:var(--main);
+      }
+      .admin-section-hidden{
+        display:none !important;
+      }
+      @media(max-width:760px){
+        .admin-sub-tabs{
+          grid-template-columns:1fr;
+          gap:8px;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  window.gbSwitchAdminSubTab = switchAdminTabSafe;
+
   document.addEventListener("DOMContentLoaded",()=>{
-    setTimeout(gbFixAdminSectionGroups, 300);
-    setTimeout(gbFixAdminSectionGroups, 1000);
+    applyAdminTabsSafeCss();
+    setTimeout(ensureAdminTabsSafe, 300);
+    setTimeout(ensureAdminTabsSafe, 1000);
   });
 
-  const oldRenderAllV303 = renderAll;
+  const oldRenderAllV304 = renderAll;
   renderAll = function(){
-    oldRenderAllV303();
-    gbFixAdminSectionGroups();
+    oldRenderAllV304();
+    applyAdminTabsSafeCss();
+    ensureAdminTabsSafe();
   };
 })();
