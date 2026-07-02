@@ -4375,3 +4375,58 @@ renderAll = function() {
     updateFloatingButtons();
   };
 })();
+
+/* GoldenBird Inventory v2.2.8｜分類同步修正 */
+(function(){
+  function normalizeCategory(v){
+    return String(v||"").trim();
+  }
+
+  function refreshAllCategorySelectors(){
+    if(typeof data==="undefined" || !Array.isArray(data.items)) return;
+    const cats=[...new Set(data.items.map(i=>normalizeCategory(i.category)).filter(Boolean))].sort();
+
+    [
+      "inventoryCategoryFilter",
+      "itemManageCategoryFilter",
+      "newItemCategoryManage"
+    ].forEach(id=>{
+      const sel=document.getElementById(id);
+      if(!sel) return;
+
+      const current=sel.value;
+
+      if(id==="newItemCategoryManage"){
+        sel.innerHTML=cats.map(c=>`<option value="${c}">${c}</option>`).join("");
+      }else{
+        sel.innerHTML='<option value="all">全部分類</option>'+
+          cats.map(c=>`<option value="${c}">${c}</option>`).join("");
+      }
+
+      if([...sel.options].some(o=>o.value===current)){
+        sel.value=current;
+      }
+    });
+  }
+
+  const oldCreate=createNewItem;
+  createNewItem=function(args){
+    if(args && args.category){
+      const n=normalizeCategory(args.category);
+      const exist=[...new Set((data.items||[]).map(i=>normalizeCategory(i.category)))].find(c=>c.toLowerCase()===n.toLowerCase());
+      if(exist) args.category=exist;
+    }
+    oldCreate(args);
+    refreshAllCategorySelectors();
+  }
+
+  const oldRenderAllV228=renderAll;
+  renderAll=function(){
+    oldRenderAllV228();
+    refreshAllCategorySelectors();
+  }
+
+  document.addEventListener("DOMContentLoaded",()=>{
+    setTimeout(refreshAllCategorySelectors,300);
+  });
+})();
