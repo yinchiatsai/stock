@@ -5245,3 +5245,184 @@ renderAll = function() {
 
   window.gbUpdateManualOrderFxPreview = updateManualOrderFxPreview;
 })();
+
+/* GoldenBird Inventory v2.3.1｜叫貨新增送出修正 */
+(function(){
+  function gbGetOrderItemBySearch(){
+    const input = document.getElementById("manualOrderItemSearch")
+      || document.querySelector('input[placeholder*="內部品項"]');
+    const select = document.getElementById("manualOrderItemSelect");
+
+    if(select?.value){
+      const item = data.items.find(i => i.id === select.value && !i.disabled);
+      if(item) return item;
+    }
+
+    const selectedId = input?.dataset?.selectedItemId;
+    if(selectedId){
+      const item = data.items.find(i => i.id === selectedId && !i.disabled);
+      if(item) return item;
+    }
+
+    const keyword = String(input?.value || "").trim().toLowerCase().replace(/\s+/g,"");
+    if(!keyword) return null;
+
+    const exact = data.items.find(i => !i.disabled && String(i.name || "").trim().toLowerCase().replace(/\s+/g,"") === keyword);
+    if(exact) return exact;
+
+    const partial = data.items.filter(i => !i.disabled && String(i.name || "").trim().toLowerCase().replace(/\s+/g,"").includes(keyword));
+    return partial.length === 1 ? partial[0] : null;
+  }
+
+  async function gbGetCnyRateV231(){
+    try{
+      const cached = localStorage.getItem("gb_cny_twd_rate_cache_v1");
+      if(cached){
+        const obj = JSON.parse(cached);
+        if(obj?.rate && Date.now() - Number(obj.time || 0) < 1000 * 60 * 60 * 12) return Number(obj.rate);
+      }
+    }catch(error){}
+
+    try{
+      const res = await fetch("https://open.er-api.com/v6/latest/CNY", {cache:"no-store"});
+      const json = await res.json();
+      const rate = Number(json?.rates?.TWD);
+      if(rate){
+        localStorage.setItem("gb_cny_twd_rate_cache_v1", JSON.stringify({rate, time:Date.now()}));
+        return rate;
+      }
+    }catch(error){
+      console.warn("CNY rate fetch failed.", error);
+    }
+
+    return 4.45;
+  }
+
+  async function gbCalculateOrderCostV231(){
+    const productCost = Number(document.getElementById("manualOrderCost")?.value || 0) || 0;
+    const freight = Number(document.getElementById("manualOrderFreight")?.value || 0) || 0;
+    const currency = document.getElementById("manualOrderCurrency")?.value || "TWD";
+
+    if(currency === "CNY"){
+      const rate = await gbGetCnyRateV231();
+      return {
+        currency,
+        fxRate: rate,
+        originalCost: productCost,
+        originalFreight: freight,
+        productCost: Math.round(productCost * rate),
+        freight: Math.round(freight * rate),
+        total: Math.round((productCost + freight) * rate)
+      };
+    }
+
+    return {
+      currency: "TWD",
+      fxRate: 1,
+      originalCost: productCost,
+      originalFreight: freight,
+      productCost: Math.round(productCost),
+      freight: Math.round(freight),
+      total: Math.round(productCost + freight)
+    };
+  }
+
+  async function gbSubmitManualOrderV231(){
+    const item = gbGetOrderItemBySearch();
+    const qty = Number(document.getElementById("manualOrderQty")?.value || 0);
+    const source = document.getElementById("manualOrderSource")?.value.trim() || "手動新增";
+    const date = document.getElementById("manualOrderDate")?.value || new Date().toISOString().slice(0,10);
+
+    if(!item){
+      showToast("請先搜尋並選擇品項");
+      return;
+    }
+
+    if(!qty || qty <= 0){
+      showToast("請輸入正確叫貨數量");
+      return;
+    }
+
+    const cost = await gbCalculateOrderCostV231();
+
+    if(Number.isNaN(cost.total) || cost.total < 0){
+      showToast("請輸入正確商品成本與運費");
+      return;
+    }
+
+    const role = String(window.GB_AUTH?.role || document.getElementById("roleSelect")?.value || "staff").toLowerCase();
+    const person = role === "qing" ? "青" : role === "emily" ? "Emily" : role === "boss" ? "老闆" : (window.GB_AUTH?.user?.displayName || "員工");
+
+    const newOrder = {
+      id: `O${Date.now()}`,
+      date,
+      itemId: item.id,
+      qty,
+      received: 0,
+      cost: cost.total,
+      productCost: cost.productCost,
+      freight: cost.freight,
+      originalCost: cost.originalCost,
+      originalFreight: cost.originalFreight,
+      currency: cost.currency,
+      fxRate: cost.fxRate,
+      source,
+      person,
+      status: "在途"
+    };
+
+    data.orders.unshift(newOrder);
+    lastCreatedOrderId = newOrder.id;
+
+    saveData();
+    renderAll();
+
+    const fields = ["manualOrderItemSearch","manualOrderQty","manualOrderCost","manualOrderFreight","manualOrderSource","manualOrderDate"];
+    fields.forEach(id=>{
+      const el = document.getElementById(id);
+      if(el) el.value = "";
+    });
+
+    const select = document.getElementById("manualOrderItemSelect");
+    if(select) select.value = "";
+
+    const currency = document.getElementById("manualOrderCurrency");
+    if(currency) currency.value = "TWD";
+
+    const preview = document.getElementById("manualOrderFxPreview");
+    if(preview) preview.value = "台幣合計 NT$ 0";
+
+    showToast(`${item.name} 已新增叫貨，成本含運費 NT$ ${cost.total}`);
+  }
+
+  function gbBindManualOrderSubmitV231(){
+    const btn = document.getElementById("addManualOrderBtn")
+      || document.querySelector('button[onclick*="addManualOrder"]')
+      || [...document.querySelectorAll("button")].find(b => (b.textContent || "").includes("新增叫貨紀錄"));
+
+    if(btn){
+      btn.onclick = function(event){
+        event.preventDefault();
+        gbSubmitManualOrderV231();
+      };
+    }
+  }
+
+  // 覆蓋全域函式，避免舊事件呼叫到舊版流程
+  window.addManualOrder = gbSubmitManualOrderV231;
+  addManualOrder = gbSubmitManualOrderV231;
+
+  document.addEventListener("DOMContentLoaded",()=>{
+    gbBindManualOrderSubmitV231();
+    setTimeout(gbBindManualOrderSubmitV231,300);
+    setTimeout(gbBindManualOrderSubmitV231,1000);
+  });
+
+  const oldRenderAllV231 = renderAll;
+  renderAll = function(){
+    oldRenderAllV231();
+    gbBindManualOrderSubmitV231();
+  };
+
+  window.gbSubmitManualOrderV231 = gbSubmitManualOrderV231;
+})();
