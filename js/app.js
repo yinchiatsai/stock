@@ -10971,3 +10971,231 @@ window.GB_VERSION = "goldenbird-inventory-v3.0.1-firebase-duplicate-fix";
     };
   };
 })();
+
+
+/* GoldenBird Inventory v3.3.6｜成本報表位置精準修正 */
+(function(){
+  window.GB_VERSION = "goldenbird-inventory-v3.3.6-cost-report-placement-fix";
+
+  function gbV336Role(){
+    return String(window.GB_AUTH?.role || document.getElementById("roleSelect")?.value || "staff").toLowerCase();
+  }
+
+  function gbV336CanSeeCost(){
+    return ["boss", "emily", "qing"].includes(gbV336Role());
+  }
+
+  function gbV336IsAdminMainTab(){
+    if(typeof currentTab !== "undefined") return currentTab === "admin";
+    return document.querySelector(".tab.active")?.dataset?.tab === "admin";
+  }
+
+  function gbV336ActiveAdminTab(){
+    return document.querySelector("#adminSubTabs .admin-sub-tab.active")?.dataset?.adminTab
+      || localStorage.getItem("gbAdminSubTab")
+      || "items";
+  }
+
+  function gbV336IsCostTab(){
+    return gbV336IsAdminMainTab() && gbV336ActiveAdminTab() === "costs" && gbV336CanSeeCost();
+  }
+
+  function gbV336AdminContent(){
+    return document.getElementById("adminContent");
+  }
+
+  function gbV336CostSection(){
+    const adminContent = gbV336AdminContent();
+    if(!adminContent) return null;
+
+    return adminContent.querySelector(".cost-section")
+      || [...adminContent.children].find(el => {
+        const text = el.textContent || "";
+        return text.includes("成本報表") || text.includes("年度總進貨成本") || !!el.querySelector("#costYearSelect,#monthlyCostTable,#monthlyCostCards");
+      })
+      || null;
+  }
+
+  function gbV336OrderSection(){
+    const adminContent = gbV336AdminContent();
+    if(!adminContent) return null;
+
+    return adminContent.querySelector(".order-section")
+      || [...adminContent.children].find(el => {
+        const text = el.textContent || "";
+        return text.includes("叫貨管理") || text.includes("手動新增叫貨") || text.includes("叫貨紀錄");
+      })
+      || null;
+  }
+
+  function gbV336ItemSection(){
+    const adminContent = gbV336AdminContent();
+    if(!adminContent) return null;
+
+    return adminContent.querySelector(".item-section")
+      || [...adminContent.children].find(el => {
+        const text = el.textContent || "";
+        return text.includes("品項管理") || text.includes("新增品項") || text.includes("不想再列入庫存");
+      })
+      || null;
+  }
+
+  function gbV336DynamicCostNodes(){
+    return [
+      ...document.querySelectorAll(
+        "#gbCostMonthFilter,#gbV330CostReport,#gbV327CostSummary,.gb-cost-summary-v327,.gb-cost-report-v330"
+      )
+    ].filter(Boolean);
+  }
+
+  function gbV336MarkAdminGroups(){
+    const itemSection = gbV336ItemSection();
+    const orderSection = gbV336OrderSection();
+    const costSection = gbV336CostSection();
+
+    if(itemSection) itemSection.dataset.adminGroup = "items";
+    if(orderSection) orderSection.dataset.adminGroup = "orders";
+    if(costSection) costSection.dataset.adminGroup = "costs";
+
+    gbV336DynamicCostNodes().forEach(node => {
+      node.dataset.adminGroup = "costs";
+    });
+  }
+
+  function gbV336MoveDynamicCostNodes(){
+    const costSection = gbV336CostSection();
+    if(!costSection) return;
+
+    gbV336DynamicCostNodes().forEach(node => {
+      if(node === costSection || costSection.contains(node)) return;
+
+      // 動態成本報表若被插到品項管理 / 叫貨管理 / adminContent 直層，統一搬回成本報表區
+      costSection.appendChild(node);
+      node.dataset.adminGroup = "costs";
+    });
+  }
+
+  function gbV336ApplyAdminVisibility(){
+    const adminContent = gbV336AdminContent();
+    if(!adminContent) return;
+
+    const active = gbV336ActiveAdminTab();
+
+    [...adminContent.children].forEach(section => {
+      if(section.id === "adminSubTabs") return;
+      const group = section.dataset.adminGroup || "";
+      if(!group || group === "always") return;
+      section.classList.toggle("admin-section-hidden", group !== active);
+    });
+
+    const showCost = gbV336IsCostTab();
+
+    gbV336DynamicCostNodes().forEach(node => {
+      node.classList.toggle("admin-section-hidden", !showCost);
+      node.style.display = showCost ? "" : "none";
+    });
+  }
+
+  function gbV336ApplyCss(){
+    if(document.getElementById("gbV336CostPlacementCss")) return;
+
+    const style = document.createElement("style");
+    style.id = "gbV336CostPlacementCss";
+    style.textContent = `
+      body:not(.gb-admin-costs) #gbCostMonthFilter,
+      body:not(.gb-admin-costs) #gbV330CostReport,
+      body:not(.gb-admin-costs) #gbV327CostSummary,
+      body:not(.gb-admin-costs) .gb-cost-summary-v327,
+      body:not(.gb-admin-costs) .gb-cost-report-v330{
+        display:none !important;
+      }
+
+      body.gb-admin-costs #adminContent .cost-section #gbCostMonthFilter,
+      body.gb-admin-costs #adminContent .cost-section #gbV330CostReport,
+      body.gb-admin-costs #adminContent .cost-section #gbV327CostSummary,
+      body.gb-admin-costs #adminContent .cost-section .gb-cost-summary-v327,
+      body.gb-admin-costs #adminContent .cost-section .gb-cost-report-v330{
+        display:block;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function gbV336ApplyBodyClass(){
+    const active = gbV336ActiveAdminTab();
+    document.body.classList.toggle("gb-admin-items", active === "items");
+    document.body.classList.toggle("gb-admin-orders", active === "orders");
+    document.body.classList.toggle("gb-admin-costs", gbV336IsCostTab());
+  }
+
+  function gbV336BindAdminTabs(){
+    document.querySelectorAll("#adminSubTabs .admin-sub-tab").forEach(btn => {
+      if(btn.dataset.gbV336Bound === "true") return;
+
+      btn.addEventListener("click", () => {
+        setTimeout(gbV336Run, 30);
+        setTimeout(gbV336Run, 150);
+      });
+
+      btn.dataset.gbV336Bound = "true";
+    });
+  }
+
+  function gbV336Run(){
+    gbV336ApplyCss();
+    gbV336BindAdminTabs();
+    gbV336MarkAdminGroups();
+    gbV336MoveDynamicCostNodes();
+    gbV336ApplyBodyClass();
+    gbV336ApplyAdminVisibility();
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    setTimeout(gbV336Run, 250);
+    setTimeout(gbV336Run, 800);
+    setTimeout(gbV336Run, 1500);
+  });
+
+  window.addEventListener("gb-role-ready", () => {
+    setTimeout(gbV336Run, 250);
+  });
+
+  const oldRenderAllV336 = renderAll;
+  renderAll = function(){
+    oldRenderAllV336();
+    gbV336Run();
+  };
+
+  if(!window.__gbV336CostPlacementObserver){
+    window.__gbV336CostPlacementObserver = true;
+
+    document.addEventListener("DOMContentLoaded", () => {
+      const observer = new MutationObserver(() => {
+        clearTimeout(window.__gbV336CostPlacementTimer);
+        window.__gbV336CostPlacementTimer = setTimeout(gbV336Run, 80);
+      });
+
+      observer.observe(document.body, { childList:true, subtree:true });
+    });
+  }
+
+  window.gbCostPlacementCheck = function(){
+    const active = gbV336ActiveAdminTab();
+    return {
+      version: window.GB_VERSION,
+      activeAdminTab: active,
+      canSeeCost: gbV336CanSeeCost(),
+      isCostTab: gbV336IsCostTab(),
+      costSectionFound: !!gbV336CostSection(),
+      dynamicCostNodes: gbV336DynamicCostNodes().map(node => ({
+        id: node.id || "",
+        className: node.className || "",
+        parentClass: node.parentElement?.className || "",
+        hidden: node.classList.contains("admin-section-hidden") || getComputedStyle(node).display === "none"
+      })),
+      costNodesInsideItemSection: gbV336DynamicCostNodes().filter(node => gbV336ItemSection()?.contains(node)).length,
+      costNodesInsideCostSection: gbV336DynamicCostNodes().filter(node => gbV336CostSection()?.contains(node)).length
+    };
+  };
+})();
+
