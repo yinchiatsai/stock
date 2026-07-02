@@ -7647,13 +7647,13 @@ window.GB_VERSION = "goldenbird-inventory-v3.0.1-firebase-duplicate-fix";
   };
 })();
 
-/* GoldenBird Inventory v3.2.0｜手機版在途商品獨立小卡 */
+/* GoldenBird Inventory v3.2.1｜手機版在途商品最終小卡版 */
 (function(){
-  function gbIncomingIsMobile(){
+  function gbIncomingMobileFinalIsMobile(){
     return window.innerWidth <= 760;
   }
 
-  function gbIncomingEscape(value){
+  function gbIncomingMobileFinalEscape(value){
     if(typeof escapeHtml === "function") return escapeHtml(value);
     return String(value ?? "")
       .replaceAll("&","&amp;")
@@ -7663,61 +7663,95 @@ window.GB_VERSION = "goldenbird-inventory-v3.0.1-firebase-duplicate-fix";
       .replaceAll("'","&#039;");
   }
 
-  function gbIncomingItem(order){
-    return typeof getItem === "function" ? getItem(order.itemId) : (data.items || []).find(item => item.id === order.itemId);
+  function gbIncomingMobileFinalItem(order){
+    if(typeof getItem === "function") return getItem(order.itemId);
+    return (data.items || []).find(item => item.id === order.itemId);
   }
 
-  function gbRenderIncomingMobileCards(){
-    const host = document.getElementById("incomingMobileCards");
+  function gbIncomingMobileFinalActiveOrders(){
+    return (data.orders || [])
+      .filter(order => Number(order.qty || 0) - Number(order.received || 0) > 0)
+      .sort((a,b)=>{
+        const dateCompare = String(a.date || "").localeCompare(String(b.date || ""));
+        if(dateCompare !== 0) return dateCompare;
+        return String(a.id || "").localeCompare(String(b.id || ""));
+      });
+  }
+
+  function gbEnsureIncomingMobileFinalHost(){
+    const incomingSection = document.getElementById("incoming");
+    if(!incomingSection) return null;
+
+    let host = document.getElementById("incomingMobileFinalCards");
+    if(!host){
+      host = document.createElement("div");
+      host.id = "incomingMobileFinalCards";
+      host.className = "incoming-mobile-final-cards";
+
+      const tableScroll = incomingSection.querySelector(".table-scroll");
+      if(tableScroll){
+        tableScroll.insertAdjacentElement("afterend", host);
+      }else{
+        incomingSection.appendChild(host);
+      }
+    }
+
+    return host;
+  }
+
+  function gbRenderIncomingMobileFinalCards(){
+    const host = gbEnsureIncomingMobileFinalHost();
     if(!host) return;
 
-    const activeOrders = (data.orders || [])
-      .filter(order => Number(order.qty || 0) - Number(order.received || 0) > 0)
-      .sort((a,b) => String(a.date || "").localeCompare(String(b.date || "")));
+    const orders = gbIncomingMobileFinalActiveOrders();
 
-    if(!activeOrders.length){
-      host.innerHTML = `<div class="incoming-empty">目前沒有在途商品</div>`;
+    if(!orders.length){
+      host.innerHTML = `<div class="incoming-mobile-final-empty">目前沒有在途商品</div>`;
       return;
     }
 
-    host.innerHTML = activeOrders.map(order => {
-      const item = gbIncomingItem(order);
+    host.innerHTML = orders.map(order => {
+      const item = gbIncomingMobileFinalItem(order);
       const itemName = item ? item.name : (order.deletedItemName || "已刪除品項");
       const qty = Number(order.qty || 0);
       const received = Number(order.received || 0);
       const remain = Math.max(0, qty - received);
       const status = order.status || (received > 0 ? "部分到貨" : "在途");
       const badgeClass = status === "部分到貨" ? "warn" : "info";
+      const dateLabel = order.date ? `叫貨 ${gbIncomingMobileFinalEscape(order.date)}` : "";
 
       return `
-        <article class="incoming-mobile-card ${order.id === lastCreatedOrderId ? "highlight-row" : ""}">
-          <div class="incoming-card-top">
-            <div class="incoming-card-title">${gbIncomingEscape(itemName)}</div>
-            <span class="badge ${badgeClass}">${gbIncomingEscape(status)}</span>
+        <article class="incoming-mobile-final-card ${order.id === lastCreatedOrderId ? "highlight-row" : ""}">
+          <div class="incoming-final-head">
+            <div class="incoming-final-title-wrap">
+              <div class="incoming-final-title">${gbIncomingMobileFinalEscape(itemName)}</div>
+              ${dateLabel ? `<div class="incoming-final-date">${dateLabel}</div>` : ""}
+            </div>
+            <span class="badge ${badgeClass} incoming-final-badge">${gbIncomingMobileFinalEscape(status)}</span>
           </div>
 
-          <div class="incoming-card-stats">
-            <div class="incoming-stat">
+          <div class="incoming-final-stats">
+            <div class="incoming-final-stat">
               <span>叫貨</span>
               <strong>${qty}</strong>
             </div>
-            <div class="incoming-stat">
+            <div class="incoming-final-stat">
               <span>已到</span>
               <strong>${received}</strong>
             </div>
-            <div class="incoming-stat">
+            <div class="incoming-final-stat">
               <span>剩餘</span>
               <strong>${remain}</strong>
             </div>
           </div>
 
-          <div class="incoming-card-meta">
-            <span>叫貨人 ${gbIncomingEscape(order.person || "-")}</span>
+          <div class="incoming-final-meta">
+            <span>叫貨人 ${gbIncomingMobileFinalEscape(order.person || "-")}</span>
           </div>
 
-          <div class="incoming-card-actions">
-            <input class="receive-input incoming-mobile-input" data-id="${order.id}" type="number" min="1" max="${remain}" placeholder="本次到貨">
-            <button class="small receive-btn incoming-mobile-btn" data-id="${order.id}" type="button">確認到貨</button>
+          <div class="incoming-final-actions">
+            <input class="receive-input incoming-final-input" data-id="${order.id}" type="number" min="1" max="${remain}" placeholder="本次到貨">
+            <button class="small receive-btn incoming-final-btn" data-id="${order.id}" type="button">確認到貨</button>
           </div>
         </article>
       `;
@@ -7730,211 +7764,263 @@ window.GB_VERSION = "goldenbird-inventory-v3.0.1-firebase-duplicate-fix";
     });
   }
 
-  function gbEnsureIncomingMobileHost(){
-    const incomingSection = document.getElementById("incoming");
-    if(!incomingSection) return;
+  function gbRenderIncomingDesktopTableFinal(){
+    const tbody = document.getElementById("incomingTable");
+    if (!tbody) return;
 
-    let host = document.getElementById("incomingMobileCards");
-    if(!host){
-      host = document.createElement("div");
-      host.id = "incomingMobileCards";
-      host.className = "incoming-mobile-cards";
-      const tableScroll = incomingSection.querySelector(".table-scroll");
-      if(tableScroll){
-        tableScroll.insertAdjacentElement("afterend", host);
-      }else{
-        incomingSection.appendChild(host);
+    const orders = gbIncomingMobileFinalActiveOrders();
+
+    tbody.innerHTML = orders.map(order => {
+      const item = gbIncomingMobileFinalItem(order);
+      const remain = Math.max(0, Number(order.qty || 0) - Number(order.received || 0));
+      const status = order.status || (Number(order.received || 0) > 0 ? "部分到貨" : "在途");
+      const statusClass = status === "部分到貨" ? "warn" : "info";
+
+      return `
+        <tr class="${order.id === lastCreatedOrderId ? "highlight-row" : ""}">
+          <td>${gbIncomingMobileFinalEscape(order.date || "")}</td>
+          <td>${item ? gbIncomingMobileFinalEscape(item.name) : gbIncomingMobileFinalEscape(order.deletedItemName || "已刪除品項")}</td>
+          <td>${Number(order.qty || 0)}</td>
+          <td>${Number(order.received || 0)}</td>
+          <td>${remain}</td>
+          <td>${gbIncomingMobileFinalEscape(order.person || "-")}</td>
+          <td><span class="badge ${statusClass}">${gbIncomingMobileFinalEscape(status)}</span></td>
+          <td><input class="receive-input" data-id="${order.id}" type="number" min="1" max="${remain}" placeholder="數量"></td>
+          <td><button class="small receive-btn" data-id="${order.id}" type="button">確認到貨</button></td>
+        </tr>
+      `;
+    }).join("") || `<tr><td colspan="9">目前沒有在途商品</td></tr>`;
+
+    tbody.querySelectorAll(".receive-btn").forEach(button => {
+      button.onclick = () => {
+        if(typeof receiveOrder === "function") receiveOrder(button.dataset.id);
+      };
+    });
+  }
+
+  function gbRenderIncomingFinal(){
+    const tbody = document.getElementById("incomingTable");
+    const host = gbEnsureIncomingMobileFinalHost();
+    gbApplyIncomingMobileFinalCss();
+
+    if(gbIncomingMobileFinalIsMobile()){
+      if(tbody) tbody.innerHTML = "";
+      if(host) host.style.display = "block";
+      gbRenderIncomingMobileFinalCards();
+    }else{
+      if(host){
+        host.innerHTML = "";
+        host.style.display = "none";
       }
+      gbRenderIncomingDesktopTableFinal();
     }
   }
 
-  function gbApplyIncomingMobileCardCss(){
-    if(document.getElementById("gbV320IncomingMobileCardCss")) return;
+  function gbApplyIncomingMobileFinalCss(){
+    if(document.getElementById("gbV321IncomingFinalCss")) return;
 
     const style = document.createElement("style");
-    style.id = "gbV320IncomingMobileCardCss";
+    style.id = "gbV321IncomingFinalCss";
     style.textContent = `
-      .incoming-mobile-cards{
+      .incoming-mobile-final-cards{
         display:none;
       }
 
       @media(max-width:760px){
+        #incoming{
+          overflow-x:hidden !important;
+        }
+
         #incoming .table-scroll{
           display:none !important;
         }
 
-        .incoming-mobile-cards{
+        .incoming-mobile-final-cards{
           display:block !important;
-          width:100%;
-          max-width:100%;
-          box-sizing:border-box;
+          width:100% !important;
+          max-width:100% !important;
+          box-sizing:border-box !important;
+          overflow-x:hidden !important;
         }
 
-        .incoming-mobile-card{
-          width:100%;
-          max-width:100%;
-          box-sizing:border-box;
-          background:#fff;
-          border:1px solid var(--line);
-          border-radius:18px;
-          padding:12px 14px;
-          margin:0 0 10px;
-          box-shadow:0 3px 10px rgba(0,0,0,.035);
+        .incoming-mobile-final-card{
+          width:100% !important;
+          max-width:100% !important;
+          box-sizing:border-box !important;
+          background:#fff !important;
+          border:1px solid var(--line) !important;
+          border-radius:18px !important;
+          padding:12px 14px !important;
+          margin:0 0 10px !important;
+          box-shadow:0 3px 10px rgba(0,0,0,.035) !important;
+          overflow:hidden !important;
         }
 
-        .incoming-card-top{
-          display:grid;
-          grid-template-columns:1fr auto;
-          gap:10px;
-          align-items:start;
-          margin-bottom:9px;
+        .incoming-final-head{
+          display:grid !important;
+          grid-template-columns:minmax(0,1fr) auto !important;
+          gap:10px !important;
+          align-items:start !important;
+          margin-bottom:9px !important;
         }
 
-        .incoming-card-title{
-          font-size:17px;
-          font-weight:900;
-          line-height:1.35;
-          color:var(--text);
-          overflow:hidden;
-          display:-webkit-box;
-          -webkit-line-clamp:2;
-          -webkit-box-orient:vertical;
+        .incoming-final-title-wrap{
+          min-width:0 !important;
         }
 
-        .incoming-card-top .badge{
-          display:inline-flex;
-          align-items:center;
-          justify-content:center;
-          padding:6px 11px;
-          border-radius:999px;
-          font-size:13px;
-          font-weight:900;
-          white-space:nowrap;
+        .incoming-final-title{
+          font-size:17px !important;
+          font-weight:900 !important;
+          line-height:1.35 !important;
+          color:var(--text) !important;
+          overflow:hidden !important;
+          display:-webkit-box !important;
+          -webkit-line-clamp:2 !important;
+          -webkit-box-orient:vertical !important;
         }
 
-        .incoming-card-stats{
-          display:grid;
-          grid-template-columns:repeat(3,1fr);
-          gap:8px;
-          margin-bottom:8px;
+        .incoming-final-date{
+          margin-top:3px !important;
+          color:var(--muted) !important;
+          font-size:12px !important;
+          font-weight:800 !important;
         }
 
-        .incoming-stat{
-          min-width:0;
+        .incoming-final-badge{
+          display:inline-flex !important;
+          align-items:center !important;
+          justify-content:center !important;
+          padding:6px 10px !important;
+          border-radius:999px !important;
+          font-size:13px !important;
+          font-weight:900 !important;
+          white-space:nowrap !important;
+          max-width:96px !important;
         }
 
-        .incoming-stat span{
-          display:inline-flex;
-          align-items:center;
-          padding:3px 7px;
-          margin-bottom:4px;
-          border-radius:999px;
-          background:#f3f5f1;
-          color:var(--muted);
-          font-size:12px;
-          font-weight:900;
+        .incoming-final-stats{
+          display:grid !important;
+          grid-template-columns:repeat(3,1fr) !important;
+          gap:8px !important;
+          margin:0 0 8px !important;
         }
 
-        .incoming-stat strong{
-          display:block;
-          font-size:17px;
-          line-height:1.2;
-          font-weight:900;
-          color:var(--text);
+        .incoming-final-stat{
+          min-width:0 !important;
         }
 
-        .incoming-card-meta{
-          margin-bottom:9px;
+        .incoming-final-stat span{
+          display:inline-flex !important;
+          align-items:center !important;
+          padding:3px 7px !important;
+          margin-bottom:4px !important;
+          border-radius:999px !important;
+          background:#f3f5f1 !important;
+          color:var(--muted) !important;
+          font-size:12px !important;
+          font-weight:900 !important;
         }
 
-        .incoming-card-meta span{
-          display:inline-flex;
-          align-items:center;
-          width:max-content;
-          max-width:100%;
-          padding:4px 9px;
-          border-radius:999px;
-          background:#f3f5f1;
-          color:var(--muted);
-          font-size:12px;
-          font-weight:900;
+        .incoming-final-stat strong{
+          display:block !important;
+          font-size:17px !important;
+          line-height:1.2 !important;
+          font-weight:900 !important;
+          color:var(--text) !important;
         }
 
-        .incoming-card-actions{
-          display:grid;
-          grid-template-columns:42% 1fr;
-          gap:10px;
-          align-items:center;
+        .incoming-final-meta{
+          margin-bottom:9px !important;
         }
 
-        .incoming-mobile-input,
-        .incoming-mobile-btn{
+        .incoming-final-meta span{
+          display:inline-flex !important;
+          align-items:center !important;
+          width:max-content !important;
+          max-width:100% !important;
+          padding:4px 9px !important;
+          border-radius:999px !important;
+          background:#f3f5f1 !important;
+          color:var(--muted) !important;
+          font-size:12px !important;
+          font-weight:900 !important;
+        }
+
+        .incoming-final-actions{
+          display:grid !important;
+          grid-template-columns:42% minmax(0,1fr) !important;
+          gap:10px !important;
+          align-items:center !important;
+          width:100% !important;
+          max-width:100% !important;
+          box-sizing:border-box !important;
+        }
+
+        .incoming-final-input,
+        .incoming-final-btn{
           width:100% !important;
           height:42px !important;
           min-width:0 !important;
+          max-width:100% !important;
           border-radius:15px !important;
           box-sizing:border-box !important;
           font-size:15px !important;
         }
 
-        .incoming-mobile-input{
+        .incoming-final-input{
           text-align:center !important;
-          padding:0 12px !important;
-        }
-
-        .incoming-mobile-btn{
-          font-weight:900 !important;
-          white-space:nowrap !important;
           padding:0 10px !important;
         }
 
-        .incoming-empty{
-          padding:18px;
-          border:1px dashed var(--line);
-          border-radius:18px;
-          color:var(--muted);
-          font-weight:800;
-          background:#fff;
-          text-align:center;
+        .incoming-final-btn{
+          font-weight:900 !important;
+          white-space:nowrap !important;
+          padding:0 8px !important;
+        }
+
+        .incoming-mobile-final-empty{
+          width:100% !important;
+          box-sizing:border-box !important;
+          padding:18px !important;
+          border:1px dashed var(--line) !important;
+          border-radius:18px !important;
+          color:var(--muted) !important;
+          font-weight:800 !important;
+          background:#fff !important;
+          text-align:center !important;
         }
       }
     `;
     document.head.appendChild(style);
   }
 
-  function gbRenderIncomingWithMobile(){
-    gbEnsureIncomingMobileHost();
-    gbApplyIncomingMobileCardCss();
-
-    // 桌機維持原本表格；手機額外渲染獨立卡片
-    if(gbIncomingIsMobile()){
-      gbRenderIncomingMobileCards();
-    }
-  }
+  window.renderIncoming = gbRenderIncomingFinal;
+  renderIncoming = gbRenderIncomingFinal;
 
   document.addEventListener("DOMContentLoaded", () => {
-    gbEnsureIncomingMobileHost();
-    gbApplyIncomingMobileCardCss();
-    setTimeout(gbRenderIncomingWithMobile, 300);
+    gbEnsureIncomingMobileFinalHost();
+    gbApplyIncomingMobileFinalCss();
+    setTimeout(gbRenderIncomingFinal, 300);
   });
 
   window.addEventListener("resize", () => {
-    gbRenderIncomingWithMobile();
+    setTimeout(gbRenderIncomingFinal, 100);
   });
 
-  const oldRenderAllV320 = renderAll;
+  const oldRenderAllV321 = renderAll;
   renderAll = function(){
-    oldRenderAllV320();
-    gbRenderIncomingWithMobile();
+    oldRenderAllV321();
+    gbRenderIncomingFinal();
   };
 
-  window.gbIncomingMobileCardCheck = function(){
+  window.gbIncomingFinalCheck = function(){
     return {
       version: window.GB_VERSION,
-      mobile: gbIncomingIsMobile(),
-      hasHost: !!document.getElementById("incomingMobileCards"),
-      cardCount: document.querySelectorAll("#incomingMobileCards .incoming-mobile-card").length,
-      tableRows: document.querySelectorAll("#incomingTable tr").length
+      mobile: gbIncomingMobileFinalIsMobile(),
+      hasFinalCss: !!document.getElementById("gbV321IncomingFinalCss"),
+      finalCardCount: document.querySelectorAll("#incomingMobileFinalCards .incoming-mobile-final-card").length,
+      tableRows: document.querySelectorAll("#incomingTable tr").length,
+      syncText: document.getElementById("syncStatusText")?.textContent
     };
   };
 })();
