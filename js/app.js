@@ -2339,3 +2339,40 @@ function compactLastUpdateMeta(){
 document.addEventListener("DOMContentLoaded",()=>{ensureInventoryCompactInfoStyles();setTimeout(compactLastUpdateMeta,300);});
 const gbV204RenderAll=renderAll;
 renderAll=function(){gbV204RenderAll();ensureInventoryCompactInfoStyles();compactLastUpdateMeta();};
+
+
+/* GoldenBird Inventory v2.0.5｜徹底移除 AI/OCR 入口 */
+window.GB_VERSION = "goldenbird-inventory-v2.0.5-no-ai-ocr-html-clean";
+
+function removeAiOcrResidue() {
+  document.querySelectorAll('[data-tab="ocr"]').forEach(el => el.remove());
+  document.querySelectorAll('#ocr').forEach(el => el.remove());
+
+  document.querySelectorAll("button, .tab, .badge, .card, section").forEach(el => {
+    const text = (el.textContent || "").trim();
+    if (
+      text.includes("AI辨識") ||
+      text.includes("AI 辨識") ||
+      text.includes("OCR") ||
+      text.includes("圖片辨識") ||
+      text.includes("採購辨識")
+    ) {
+      if (el.matches("button, .tab, .badge")) el.remove();
+    }
+  });
+
+  if (typeof currentTab !== "undefined" && currentTab === "ocr") {
+    switchTab("overview");
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  removeAiOcrResidue();
+  setTimeout(removeAiOcrResidue, 500);
+});
+
+const gbV205RenderAll = renderAll;
+renderAll = function() {
+  gbV205RenderAll();
+  removeAiOcrResidue();
+};
