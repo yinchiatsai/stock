@@ -4010,3 +4010,107 @@ renderAll = function() {
   const _r=renderAll;
   renderAll=function(){_r();applyOrderFormFix();}
 })();
+
+/* GoldenBird Inventory v2.2.4｜最近異動 UI 微調 */
+(function(){
+  function applyHistoryUiPolish(){
+    if(document.getElementById("gbV224HistoryCss")) return;
+    const style=document.createElement("style");
+    style.id="gbV224HistoryCss";
+    style.textContent=`
+      #clearHistoryBtn{
+        background:#f8fbfb !important;
+        color:var(--text) !important;
+        border:1px solid var(--line) !important;
+        box-shadow:none !important;
+      }
+      #clearHistoryBtn:hover{
+        background:#eef5f6 !important;
+      }
+      #historyRecordSummary{
+        margin:10px 0 0;
+        color:var(--muted);
+        font-weight:700;
+        font-size:14px;
+      }
+      #history .form-grid{
+        align-items:end;
+      }
+      #history .field input,
+      #history .field select,
+      #history .field button{
+        min-height:44px;
+        box-sizing:border-box;
+      }
+      @media(max-width:760px){
+        #history .form-grid{
+          grid-template-columns:1fr !important;
+          gap:12px;
+        }
+        #clearHistoryBtn{
+          width:100%;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function updateHistorySummary(){
+    const card=document.querySelector("#history .card");
+    if(!card) return;
+
+    let summary=document.getElementById("historyRecordSummary");
+    if(!summary){
+      summary=document.createElement("p");
+      summary.id="historyRecordSummary";
+      const note=card.querySelector(".note");
+      if(note) note.insertAdjacentElement("beforebegin", summary);
+      else card.appendChild(summary);
+    }
+
+    const total=Array.isArray(data.history)?data.history.length:0;
+    const limit=document.getElementById("historyLimitSelect")?.value || "20";
+    const displayText=limit==="all" ? "全部" : `最近 ${limit} 筆`;
+    summary.textContent=`目前共有 ${total} 筆異動紀錄，顯示：${displayText}`;
+  }
+
+  function normalizeHistoryClearButton(){
+    const btn=document.getElementById("clearHistoryBtn");
+    if(btn){
+      btn.textContent="清除異動紀錄";
+      btn.classList.remove("danger");
+      btn.classList.add("secondary");
+    }
+  }
+
+  const oldClearHistory=typeof clearHistoryRecords==="function" ? clearHistoryRecords : null;
+  if(oldClearHistory){
+    clearHistoryRecords=function(){
+      const ok=window.confirm("確定清除所有庫存異動紀錄？\n\n✓ 不會影響目前庫存\n✓ 不會影響在途商品\n✓ 不會影響品項資料\n\n此動作無法復原。");
+      if(!ok) return;
+
+      const originalConfirm=window.confirm;
+      window.confirm=()=>true;
+      try{
+        oldClearHistory();
+      }finally{
+        window.confirm=originalConfirm;
+      }
+      updateHistorySummary();
+    };
+  }
+
+  document.addEventListener("DOMContentLoaded",()=>{
+    applyHistoryUiPolish();
+    normalizeHistoryClearButton();
+    setTimeout(updateHistorySummary,300);
+  });
+
+  const oldRenderAll=renderAll;
+  renderAll=function(){
+    oldRenderAll();
+    applyHistoryUiPolish();
+    normalizeHistoryClearButton();
+    updateHistorySummary();
+  };
+})();
