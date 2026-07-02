@@ -1,5 +1,5 @@
 /*
-  金雀庫存管理系統 v14｜Firebase Auth + Firestore 同步啟動修正版
+  金雀庫存管理系統 v2.2 Stable｜Firebase Auth + Firestore 同步啟動版
   本版不使用 Firebase Storage，可在 Spark 免費方案下運作。
 */
 
@@ -65,7 +65,12 @@ function startInventorySyncAfterLogin() {
   const timer = setInterval(() => {
     tries += 1;
 
-    if (typeof startRemoteSync === "function" && window.GB_FIREBASE.ready && window.GB_AUTH.ready && window.GB_AUTH.user) {
+    if (
+      typeof startRemoteSync === "function" &&
+      window.GB_FIREBASE.ready &&
+      window.GB_AUTH.ready &&
+      window.GB_AUTH.user
+    ) {
       clearInterval(timer);
       try {
         startRemoteSync();
@@ -76,10 +81,10 @@ function startInventorySyncAfterLogin() {
       return;
     }
 
-    if (tries >= 20) {
+    if (tries >= 24) {
       clearInterval(timer);
       updateAuthSyncStatus("同步未啟動", "bad");
-      console.warn("startRemoteSync not found or auth/firebase not ready", {
+      console.warn("startRemoteSync not ready", {
         hasStartRemoteSync: typeof startRemoteSync === "function",
         firebaseReady: !!window.GB_FIREBASE.ready,
         authReady: !!window.GB_AUTH.ready,
