@@ -3749,3 +3749,135 @@ window.gbDiagnostic = function() {
     currentTab
   };
 };
+
+
+/* GoldenBird Inventory v2.2.1｜品項管理清單修正 */
+window.GB_VERSION = "goldenbird-inventory-v2.2.1-item-list-fix";
+
+function gbEsc(text) {
+  return String(text ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function gbGetAllItemsForManage() {
+  if (!window.data && typeof data === "undefined") return [];
+  return Array.isArray(data.items) ? data.items : [];
+}
+
+function renderItemManageTable() {
+  const tbody = document.getElementById("itemManageTable");
+  if (!tbody) return;
+
+  const select = document.getElementById("itemManageCategoryFilter");
+  const searchInput = document.getElementById("itemManageSearch");
+  const keyword = searchInput ? searchInput.value.trim() : "";
+
+  const allItems = gbGetAllItemsForManage();
+
+  const categories = [...new Set(allItems.map(item => item.category).filter(Boolean))].sort();
+  const currentValue = select ? (select.value || itemManageCategoryValue || "all") : (itemManageCategoryValue || "all");
+
+  if (select) {
+    select.innerHTML = `<option value="all">全部分類</option>` + categories
+      .map(category => `<option value="${gbEsc(category)}">${gbEsc(category)}</option>`)
+      .join("");
+
+    select.value = categories.includes(currentValue) ? currentValue : "all";
+    itemManageCategoryValue = select.value;
+  }
+
+  const rows = allItems
+    .filter(item => itemManageCategoryValue === "all" || item.category === itemManageCategoryValue)
+    .filter(item => {
+      if (!keyword) return true;
+      return String(item.name || "").includes(keyword) ||
+        String(item.category || "").includes(keyword) ||
+        String(item.dept || "").includes(keyword);
+    })
+    .map(item => `
+      <tr class="${item.id === lastCreatedItemId ? "highlight-row" : ""}">
+        <td>${gbEsc(item.name || "")}</td>
+        <td>${gbEsc(item.category || "")}</td>
+        <td>${Number(item.safety) || 0}</td>
+        <td>${item.disabled ? "已停用" : "使用中"}</td>
+        <td>
+          <button class="secondary small edit-item-btn" data-id="${gbEsc(item.id)}">修改</button>
+          <button class="danger small toggle-item-btn" data-id="${gbEsc(item.id)}">${item.disabled ? "啟用" : "停用"}</button>
+          <button class="danger small delete-item-btn" data-id="${gbEsc(item.id)}" style="background:#7a1f1f">刪除</button>
+        </td>
+      </tr>
+    `).join("");
+
+  tbody.innerHTML = rows || `<tr><td colspan="5">目前沒有符合的品項</td></tr>`;
+
+  document.querySelectorAll(".edit-item-btn").forEach(button => {
+    button.onclick = () => editItem(button.dataset.id);
+  });
+
+  document.querySelectorAll(".toggle-item-btn").forEach(button => {
+    button.onclick = () => toggleItemDisabled(button.dataset.id);
+  });
+
+  document.querySelectorAll(".delete-item-btn").forEach(button => {
+    button.onclick = () => openDeleteItem(button.dataset.id);
+  });
+}
+
+function gbRefreshItemManageWhenAdminVisible() {
+  if (currentTab === "admin" || !document.getElementById("adminContent")?.classList.contains("hidden")) {
+    renderItemManageTable();
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  setTimeout(gbRefreshItemManageWhenAdminVisible, 300);
+  setTimeout(gbRefreshItemManageWhenAdminVisible, 1000);
+  setTimeout(gbRefreshItemManageWhenAdminVisible, 2000);
+
+  const search = document.getElementById("itemManageSearch");
+  if (search) search.oninput = renderItemManageTable;
+
+  const category = document.getElementById("itemManageCategoryFilter");
+  if (category) category.onchange = event => {
+    itemManageCategoryValue = event.target.value;
+    renderItemManageTable();
+  };
+
+  const reset = document.getElementById("resetItemManageFilterBtn");
+  if (reset) reset.onclick = event => {
+    event.preventDefault();
+    itemManageCategoryValue = "all";
+    if (search) search.value = "";
+    renderItemManageTable();
+  };
+});
+
+const gbV221SwitchTab = switchTab;
+switchTab = function(tab) {
+  gbV221SwitchTab(tab);
+  if (tab === "admin") setTimeout(renderItemManageTable, 100);
+};
+
+const gbV221RenderAll = renderAll;
+renderAll = function() {
+  gbV221RenderAll();
+  gbRefreshItemManageWhenAdminVisible();
+};
+
+window.gbDiagnostic = function() {
+  return {
+    version: window.GB_VERSION,
+    syncText: document.getElementById("syncStatusText")?.textContent,
+    firebaseReady: !!window.GB_FIREBASE?.ready,
+    authReady: !!window.GB_AUTH?.ready,
+    role: window.GB_AUTH?.role || document.getElementById("roleSelect")?.value,
+    currentTab,
+    itemCount: Array.isArray(data.items) ? data.items.length : 0,
+    itemManageRows: document.querySelectorAll("#itemManageTable tr").length,
+    itemManageTableFound: !!document.getElementById("itemManageTable")
+  };
+};
