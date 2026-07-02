@@ -3502,3 +3502,252 @@ window.gbDiagnostic = function() {
     currentTab
   };
 };
+
+
+/* GoldenBird Inventory v2.0.3b｜Firebase 同步啟動修正 */
+window.GB_VERSION = "goldenbird-inventory-v2.0.3b-sync-fix";
+
+function gbCanStartRemoteSync() {
+  return !!(
+    window.GB_FIREBASE &&
+    window.GB_FIREBASE.ready &&
+    window.GB_FIREBASE.db &&
+    window.GB_AUTH &&
+    window.GB_AUTH.ready &&
+    window.GB_AUTH.user
+  );
+}
+
+function gbForceStartRemoteSync(reason = "") {
+  const status = document.getElementById("syncStatusText");
+
+  if (!gbCanStartRemoteSync()) {
+    if (status) {
+      status.textContent = "等待登入同步…";
+      status.classList.remove("ok", "bad");
+      status.classList.add("warn");
+    }
+    return false;
+  }
+
+  try {
+    if (typeof startRemoteSync === "function") {
+      startRemoteSync();
+      if (status && status.textContent === "尚未同步") {
+        status.textContent = "同步連線中…";
+        status.classList.remove("ok", "bad");
+        status.classList.add("warn");
+      }
+      console.log("GB sync started", reason);
+      return true;
+    }
+  } catch (error) {
+    console.error("GB sync start failed", error);
+    if (status) {
+      status.textContent = "同步啟動失敗";
+      status.classList.remove("ok", "warn");
+      status.classList.add("bad");
+    }
+  }
+
+  return false;
+}
+
+function gbScheduleSyncStart() {
+  gbForceStartRemoteSync("immediate");
+  setTimeout(() => gbForceStartRemoteSync("300ms"), 300);
+  setTimeout(() => gbForceStartRemoteSync("1000ms"), 1000);
+  setTimeout(() => gbForceStartRemoteSync("2500ms"), 2500);
+}
+
+window.addEventListener("gb-role-ready", gbScheduleSyncStart);
+document.addEventListener("DOMContentLoaded", gbScheduleSyncStart);
+
+const gbSyncFixRenderAll = renderAll;
+renderAll = function() {
+  gbSyncFixRenderAll();
+
+  const status = document.getElementById("syncStatusText");
+  if (status && status.textContent === "尚未同步") {
+    gbForceStartRemoteSync("renderAll");
+  }
+};
+
+window.gbDiagnostic = function() {
+  return {
+    version: window.GB_VERSION,
+    firebaseReady: !!window.GB_FIREBASE?.ready,
+    authReady: !!window.GB_AUTH?.ready,
+    hasUser: !!window.GB_AUTH?.user,
+    user: window.GB_AUTH?.user,
+    syncText: document.getElementById("syncStatusText")?.textContent,
+    hasStartRemoteSync: typeof startRemoteSync === "function",
+    hasFirestoreDb: !!window.GB_FIREBASE?.db,
+    canStartRemoteSync: gbCanStartRemoteSync(),
+    currentTab
+  };
+};
+
+window.gbForceStartRemoteSync = gbForceStartRemoteSync;
+
+
+/* GoldenBird Inventory v2.0.3c｜Emily 後台＋手機資訊列收合 */
+window.GB_VERSION = "goldenbird-inventory-v2.0.3c-emily-admin-mobile-header";
+
+function gbNormalizeRole(role) {
+  return String(role || "").trim().toLowerCase();
+}
+
+function gbIsAdminRole(role) {
+  const normalized = gbNormalizeRole(role || window.GB_AUTH?.role || document.getElementById("roleSelect")?.value);
+  return ["boss", "qing", "emily"].includes(normalized);
+}
+
+/* 確保 Emily / 老闆 / 青 可進管理後台 */
+const gbV203cRenderAdminBase = typeof renderAdmin === "function" ? renderAdmin : null;
+if (gbV203cRenderAdminBase) {
+  renderAdmin = function() {
+    const role = gbNormalizeRole(window.GB_AUTH?.role || document.getElementById("roleSelect")?.value);
+    const canManage = gbIsAdminRole(role);
+
+    const locked = document.getElementById("adminLocked");
+    const content = document.getElementById("adminContent");
+
+    if (locked) locked.classList.toggle("hidden", canManage);
+    if (content) content.classList.toggle("hidden", !canManage);
+
+    if (!canManage) return;
+
+    try {
+      renderAdminOrders();
+      renderCostReport();
+      renderItemManageTable();
+      if (typeof renderMappingManager === "function") renderMappingManager();
+    } catch (error) {
+      console.warn("renderAdmin inner render failed", error);
+    }
+  };
+}
+
+/* 手機最後更新標籤：顯示更新人 + 時間 */
+function gbCompactMobileLastUpdate() {
+  document.querySelectorAll("#inventoryGrid .meta-tags").forEach(meta => {
+    if (meta.dataset.gbMobileUpdateApplied === "true") return;
+
+    const tags = [...meta.querySelectorAll(".meta-tag")];
+    const last = tags.find(tag => (tag.textContent || "").includes("最後更新"));
+    if (!last) return;
+
+    const raw = last.textContent || "";
+    const nameMatch = raw.match(/最後更新[:：]\s*([^｜]+)/);
+    const timeMatch = raw.match(/(\d{4})\/(\d{2})\/(\d{2})\s+(\d{2}:\d{2})/);
+    const updater = nameMatch ? nameMatch[1].trim() : "";
+    const shortTime = timeMatch ? `${timeMatch[2]}/${timeMatch[3]} ${timeMatch[4]}` : "";
+
+    if (updater) {
+      const mobile = document.createElement("span");
+      mobile.className = "meta-tag mobile-updater-only";
+      mobile.textContent = shortTime ? `${updater} ${shortTime}` : updater;
+      meta.appendChild(mobile);
+      meta.dataset.gbMobileUpdateApplied = "true";
+    }
+  });
+}
+
+/* 手機上方帳號區收合 */
+function gbEnsureMobileHeaderCollapse() {
+  if (document.getElementById("gbMobileHeaderStyles")) return;
+
+  const style = document.createElement("style");
+  style.id = "gbMobileHeaderStyles";
+  style.textContent = `
+    .mobile-account-toggle {
+      display: none;
+    }
+
+    @media (max-width: 760px) {
+      header .header-inner {
+        align-items: stretch;
+      }
+
+      .mobile-account-toggle {
+        display: inline-flex !important;
+        align-self: flex-end;
+        margin-top: 8px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+      }
+
+      .role-box {
+        display: none !important;
+        margin-top: 8px;
+        padding: 10px;
+        border-radius: 16px;
+        background: rgba(255,255,255,.72);
+        border: 1px solid var(--line);
+      }
+
+      .role-box.mobile-open {
+        display: flex !important;
+      }
+
+      #inventoryGrid .meta-tags .meta-tag:not(.mobile-updater-only) {
+        display: none !important;
+      }
+
+      #inventoryGrid .meta-tags .mobile-updater-only {
+        display: inline-flex !important;
+      }
+    }
+
+    @media (min-width: 761px) {
+      #inventoryGrid .meta-tags .mobile-updater-only {
+        display: none !important;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function gbBindMobileAccountToggle() {
+  const btn = document.getElementById("mobileAccountToggleBtn");
+  const roleBox = document.getElementById("roleBox") || document.querySelector(".role-box");
+  if (!btn || !roleBox || btn.dataset.bound === "true") return;
+
+  btn.addEventListener("click", () => {
+    roleBox.classList.toggle("mobile-open");
+    btn.textContent = roleBox.classList.contains("mobile-open") ? "收起帳號資訊 ▴" : "帳號 / 同步 ▾";
+  });
+
+  btn.dataset.bound = "true";
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  gbEnsureMobileHeaderCollapse();
+  gbBindMobileAccountToggle();
+  setTimeout(gbCompactMobileLastUpdate, 400);
+});
+
+const gbV203cRenderAll = renderAll;
+renderAll = function() {
+  gbV203cRenderAll();
+  gbEnsureMobileHeaderCollapse();
+  gbBindMobileAccountToggle();
+  gbCompactMobileLastUpdate();
+};
+
+window.gbDiagnostic = function() {
+  return {
+    version: window.GB_VERSION,
+    firebaseReady: !!window.GB_FIREBASE?.ready,
+    authReady: !!window.GB_AUTH?.ready,
+    hasUser: !!window.GB_AUTH?.user,
+    user: window.GB_AUTH?.user,
+    role: window.GB_AUTH?.role || document.getElementById("roleSelect")?.value,
+    normalizedRole: gbNormalizeRole(window.GB_AUTH?.role || document.getElementById("roleSelect")?.value),
+    isAdmin: gbIsAdminRole(),
+    syncText: document.getElementById("syncStatusText")?.textContent,
+    currentTab
+  };
+};
