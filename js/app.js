@@ -10583,3 +10583,318 @@ window.GB_VERSION = "goldenbird-inventory-v3.0.1-firebase-duplicate-fix";
     };
   };
 })();
+
+/* GoldenBird Inventory v3.3.3｜叫貨紀錄表格輸出順序最終修正 */
+(function(){
+  window.GB_VERSION = "goldenbird-inventory-v3.3.3-order-history-render-fix";
+
+  function gbV333Text(el){
+    return (el?.textContent || "").trim();
+  }
+
+  function gbV333Escape(value){
+    if(typeof escapeHtml === "function") return escapeHtml(value);
+    return String(value ?? "")
+      .replaceAll("&","&amp;")
+      .replaceAll("<","&lt;")
+      .replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;")
+      .replaceAll("'","&#039;");
+  }
+
+  function gbV333Num(value){
+    const n = Number(String(value ?? "").replace(/[^\d.-]/g,""));
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function gbV333CanSeeCost(){
+    const role = String(window.GB_AUTH?.role || document.getElementById("roleSelect")?.value || "staff").toLowerCase();
+    return ["boss","emily","qing"].includes(role);
+  }
+
+  function gbV333Money(value){
+    return `NT$ ${Math.round(gbV333Num(value)).toLocaleString("zh-TW")}`;
+  }
+
+  function gbV333Normalize(value){
+    return String(value || "").replace(/\s+/g,"").trim();
+  }
+
+  function gbV333Item(order){
+    if(!order) return null;
+    if(typeof getItem === "function") return getItem(order.itemId);
+    return (data.items || []).find(item => item.id === order.itemId) || null;
+  }
+
+  function gbV333FindOrder(date, itemName, qty, received){
+    return (data.orders || []).find(order=>{
+      const item = gbV333Item(order);
+      const name = item?.name || order.deletedItemName || order.itemName || "";
+      return String(order.date || "") === String(date || "") &&
+        gbV333Normalize(name) === gbV333Normalize(itemName) &&
+        gbV333Num(order.qty) === gbV333Num(qty) &&
+        gbV333Num(order.received) === gbV333Num(received);
+    }) || null;
+  }
+
+  function gbV333ProductCost(order){
+    if(!order) return 0;
+    if(order.productCost !== undefined) return gbV333Num(order.productCost);
+    if(order.costMode === "unit_price_times_qty_plus_freight"){
+      const unit = gbV333Num(order.unitCostOriginal ?? order.originalCost ?? order.productUnitCost ?? 0);
+      const qty = gbV333Num(order.qty);
+      const rate = gbV333Num(order.fxRate) || 1;
+      return Math.round(unit * qty * rate);
+    }
+    return 0;
+  }
+
+  function gbV333Freight(order){
+    if(!order) return 0;
+    if(order.freight !== undefined) return gbV333Num(order.freight);
+    const rate = gbV333Num(order.fxRate) || 1;
+    return Math.round(gbV333Num(order.originalFreight) * rate);
+  }
+
+  function gbV333TotalCost(order, fallbackCostText){
+    if(order?.cost !== undefined) return gbV333Num(order.cost);
+    if(order) return gbV333ProductCost(order) + gbV333Freight(order);
+    return gbV333Num(fallbackCostText);
+  }
+
+  function gbV333CostDetail(order, fallbackCostText){
+    if(!gbV333CanSeeCost()) return "";
+
+    const total = gbV333TotalCost(order, fallbackCostText);
+    const product = gbV333ProductCost(order);
+    const freight = gbV333Freight(order);
+
+    let productLine = "";
+    if(order){
+      productLine = `<div class="gb-order-cost-line">商品 ${Math.round(product).toLocaleString("zh-TW")}｜運費 ${Math.round(freight).toLocaleString("zh-TW")}</div>`;
+    }
+
+    let originalLine = "";
+    if(order && (order.currency || "TWD") === "CNY"){
+      const unit = gbV333Num(order.unitCostOriginal ?? order.originalCost ?? order.productUnitCost ?? 0);
+      const qty = gbV333Num(order.qty);
+      const originalFreight = gbV333Num(order.originalFreight ?? 0);
+      const rate = gbV333Num(order.fxRate) || 1;
+      originalLine = `<div class="gb-order-cost-line">原幣 CNY ${unit} × ${qty} + 運 ${originalFreight}｜匯率 ${rate.toFixed(3)}</div>`;
+    }
+
+    return `
+      <div class="gb-order-cost-detail">
+        <div class="gb-order-cost-total">${gbV333Money(total)}</div>
+        ${productLine}
+        ${originalLine}
+      </div>
+    `;
+  }
+
+  function gbV333MakeSourceCell(order, sourceText, costText){
+    const source = order?.source || sourceText || "手動新增";
+    return `
+      <div class="gb-order-source-main">${gbV333Escape(source)}</div>
+      ${gbV333CostDetail(order, costText)}
+    `;
+  }
+
+  function gbV333IsOrderHistoryTable(table){
+    const headers = [...table.querySelectorAll("thead th")].map(th => gbV333Text(th));
+    const joined = headers.join("|");
+    return joined.includes("日期") &&
+      joined.includes("品項") &&
+      joined.includes("數量") &&
+      joined.includes("已到貨") &&
+      joined.includes("來源") &&
+      joined.includes("叫貨人") &&
+      joined.includes("狀態") &&
+      joined.includes("操作");
+  }
+
+  function gbV333FixOneTable(table){
+    if(!gbV333IsOrderHistoryTable(table)) return;
+
+    const tbody = table.querySelector("tbody");
+    if(!tbody) return;
+
+    [...tbody.querySelectorAll("tr")].forEach(row=>{
+      const cells = [...row.children];
+      if(!cells.length) return;
+
+      // 9 欄代表錯誤順序：日期 品項 數量 已到貨 成本 來源 叫貨人 狀態 操作
+      if(cells.length >= 9){
+        const date = gbV333Text(cells[0]);
+        const itemName = gbV333Text(cells[1]);
+        const qty = gbV333Text(cells[2]);
+        const received = gbV333Text(cells[3]);
+        const costText = gbV333Text(cells[4]);
+        const sourceText = gbV333Text(cells[5]);
+        const personText = gbV333Text(cells[6]);
+        const statusHtml = cells[7].innerHTML;
+        const actionHtml = cells[8].innerHTML;
+
+        const order = gbV333FindOrder(date, itemName, qty, received);
+
+        row.innerHTML = `
+          <td>${gbV333Escape(date)}</td>
+          <td>${gbV333Escape(itemName)}</td>
+          <td>${gbV333Escape(qty)}</td>
+          <td>${gbV333Escape(received)}</td>
+          <td>${gbV333MakeSourceCell(order, sourceText, costText)}</td>
+          <td>${gbV333Escape(order?.person || personText || "-")}</td>
+          <td>${statusHtml}</td>
+          <td>${actionHtml}</td>
+        `;
+
+        gbV333RebindRowButtons(row, order);
+        return;
+      }
+
+      // 8 欄但已經錯位：來源欄是 NT$、叫貨人欄是來源、狀態欄是叫貨人、操作欄混入狀態＋按鈕
+      if(cells.length === 8 && /^NT\$/i.test(gbV333Text(cells[4]))){
+        const date = gbV333Text(cells[0]);
+        const itemName = gbV333Text(cells[1]);
+        const qty = gbV333Text(cells[2]);
+        const received = gbV333Text(cells[3]);
+        const costText = gbV333Text(cells[4]);
+        const sourceText = gbV333Text(cells[5]);
+        const personText = gbV333Text(cells[6]);
+        const actionCell = cells[7];
+        const order = gbV333FindOrder(date, itemName, qty, received);
+        const status = order?.status || "在途";
+        const badgeClass = status === "已到貨" ? "ok" : status === "部分到貨" ? "warn" : "info";
+
+        const buttons = [...actionCell.querySelectorAll("button")].map(btn => btn.outerHTML).join("");
+
+        row.innerHTML = `
+          <td>${gbV333Escape(date)}</td>
+          <td>${gbV333Escape(itemName)}</td>
+          <td>${gbV333Escape(qty)}</td>
+          <td>${gbV333Escape(received)}</td>
+          <td>${gbV333MakeSourceCell(order, sourceText, costText)}</td>
+          <td>${gbV333Escape(order?.person || personText || "-")}</td>
+          <td><span class="badge ${badgeClass}">${gbV333Escape(status)}</span></td>
+          <td>${buttons || actionCell.innerHTML}</td>
+        `;
+
+        gbV333RebindRowButtons(row, order);
+      }
+    });
+  }
+
+  function gbV333RebindRowButtons(row, order){
+    row.querySelectorAll("button").forEach(btn=>{
+      const text = gbV333Text(btn);
+      const id = btn.dataset.id || btn.getAttribute("data-id") || order?.id || "";
+
+      if(text.includes("修改") && id){
+        btn.onclick = () => {
+          if(typeof editOrder === "function") editOrder(id);
+          else if(typeof openEditOrderModal === "function") openEditOrderModal(id);
+        };
+      }
+
+      if(text.includes("刪除") && id){
+        btn.onclick = () => {
+          if(typeof deleteOrder === "function") deleteOrder(id);
+        };
+      }
+    });
+  }
+
+  function gbV333FixAllOrderHistoryTables(){
+    document.querySelectorAll("table").forEach(gbV333FixOneTable);
+  }
+
+  function gbV333ApplyCss(){
+    if(document.getElementById("gbV333OrderHistoryCss")) return;
+    const style = document.createElement("style");
+    style.id = "gbV333OrderHistoryCss";
+    style.textContent = `
+      .gb-order-source-main{
+        font-weight:900;
+        color:var(--text);
+        margin-bottom:4px;
+      }
+      .gb-order-cost-detail{
+        margin-top:4px;
+        line-height:1.45;
+        color:var(--muted);
+        font-size:13px;
+        font-weight:800;
+      }
+      .gb-order-cost-total{
+        color:var(--text);
+        font-size:16px;
+        font-weight:900;
+      }
+      .gb-order-cost-line{
+        color:var(--muted);
+        white-space:nowrap;
+      }
+      body:not(.gb-can-see-cost) .gb-order-cost-detail{
+        display:none !important;
+      }
+      @media(max-width:760px){
+        .gb-order-cost-line{
+          white-space:normal;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function gbV333ApplyRoleClass(){
+    document.body.classList.toggle("gb-can-see-cost", gbV333CanSeeCost());
+  }
+
+  function gbV333Run(){
+    gbV333ApplyCss();
+    gbV333ApplyRoleClass();
+    gbV333FixAllOrderHistoryTables();
+  }
+
+  document.addEventListener("DOMContentLoaded",()=>{
+    setTimeout(gbV333Run,200);
+    setTimeout(gbV333Run,800);
+    setTimeout(gbV333Run,1600);
+  });
+
+  window.addEventListener("gb-role-ready",()=>{
+    setTimeout(gbV333Run,300);
+  });
+
+  // 使用 MutationObserver 確保篩選 / 搜尋 / render 後也會立即修正
+  if(!window.__gbV333OrderHistoryObserver){
+    window.__gbV333OrderHistoryObserver = true;
+    const observer = new MutationObserver(()=>{
+      clearTimeout(window.__gbV333FixTimer);
+      window.__gbV333FixTimer = setTimeout(gbV333Run, 80);
+    });
+    document.addEventListener("DOMContentLoaded",()=>{
+      observer.observe(document.body, { childList:true, subtree:true });
+    });
+  }
+
+  const oldRenderAllV333 = renderAll;
+  renderAll = function(){
+    oldRenderAllV333();
+    gbV333Run();
+  };
+
+  window.gbOrderHistoryFinalCheck = function(){
+    const tables = [...document.querySelectorAll("table")].filter(gbV333IsOrderHistoryTable);
+    const rows = tables.flatMap(table => [...table.querySelectorAll("tbody tr")]);
+    return {
+      version: window.GB_VERSION,
+      orderHistoryTables: tables.length,
+      rowCellCounts: rows.map(row => row.children.length),
+      badNineColumnRows: rows.filter(row => row.children.length >= 9).length,
+      badSourceCostOnlyRows: rows.filter(row => row.children.length === 8 && /^NT\$/i.test(gbV333Text(row.children[4]))).length,
+      costDetailCount: document.querySelectorAll(".gb-order-cost-detail").length,
+      syncText: document.getElementById("syncStatusText")?.textContent
+    };
+  };
+})();
