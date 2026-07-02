@@ -1581,7 +1581,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // mobile UX hint
 if(window.innerWidth < 640){
-  console.log("手機模式啟用");
+  console.log("手機版顯示啟用");
 }
 
 
@@ -1704,7 +1704,6 @@ function buildExcelRows() {
         "品項名稱": item.name,
         "分類": item.category || "",
         "管理部門": item.dept || "",
-        "模式": item.mode || "",
         "目前庫存": stock,
         "在途數量": transitQty,
         "安全庫存": safety,
@@ -1724,7 +1723,6 @@ function buildExcelRows() {
     "品項名稱": item.name,
     "分類": item.category || "",
     "管理部門": item.dept || "",
-    "模式": item.mode || "",
     "目前庫存": Number(item.stock) || 0,
     "安全庫存": Number(item.safety) || 0,
     "狀態": item.disabled ? "停用" : "啟用",
@@ -5426,3 +5424,410 @@ renderAll = function() {
 
   window.gbSubmitManualOrderV231 = gbSubmitManualOrderV231;
 })();
+
+/* GoldenBird Inventory v2.3.2｜在途商品欄位對齊修正 */
+(function(){
+  function renderIncoming() {
+    const tbody = document.getElementById("incomingTable");
+    if (!tbody) return;
+
+    const activeOrders = (data.orders || []).filter(order => Number(order.qty) - Number(order.received) > 0);
+
+    tbody.innerHTML = activeOrders.map(order => {
+      const item = getItem(order.itemId);
+      const remain = Math.max(0, Number(order.qty) - Number(order.received));
+      const statusClass = order.status === "部分到貨" ? "warn" : "info";
+
+      return `
+        <tr class="${order.id === lastCreatedOrderId ? "highlight-row" : ""}">
+          <td>${order.date || ""}</td>
+          <td>${item ? escapeHtml(item.name) : escapeHtml(order.deletedItemName || "已刪除品項")}</td>
+          <td>${Number(order.qty) || 0}</td>
+          <td>${Number(order.received) || 0}</td>
+          <td>${remain}</td>
+          <td>${escapeHtml(order.person || "-")}</td>
+          <td><span class="badge ${statusClass}">${order.status || "在途"}</span></td>
+          <td><input class="receive-input" data-id="${order.id}" type="number" min="1" max="${remain}" placeholder="數量"></td>
+          <td><button class="small receive-btn" data-id="${order.id}">確認到貨</button></td>
+        </tr>
+      `;
+    }).join("") || `<tr><td colspan="9">目前沒有在途商品</td></tr>`;
+
+    document.querySelectorAll(".receive-btn").forEach(button => {
+      button.onclick = () => receiveOrder(button.dataset.id);
+    });
+  }
+
+  function applyIncomingTableFixStyle(){
+    if(document.getElementById("gbV232IncomingCss")) return;
+
+    const style = document.createElement("style");
+    style.id = "gbV232IncomingCss";
+    style.textContent = `
+      #incomingTable input.receive-input{
+        width:86px;
+        min-width:70px;
+        box-sizing:border-box;
+      }
+
+      #incomingTable .receive-btn{
+        white-space:nowrap;
+        min-width:96px;
+      }
+
+      #incoming .table-scroll,
+      #incoming table{
+        overflow-x:auto;
+      }
+
+      #incoming table th,
+      #incoming table td{
+        white-space:nowrap;
+        vertical-align:middle;
+      }
+
+      @media(max-width:760px){
+        #incoming .table-scroll{
+          overflow-x:auto;
+          -webkit-overflow-scrolling:touch;
+        }
+
+        #incoming table{
+          min-width:820px;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  // 覆蓋全域 renderIncoming，避免舊版多出成本欄造成錯位
+  window.renderIncoming = renderIncoming;
+
+  document.addEventListener("DOMContentLoaded",()=>{
+    applyIncomingTableFixStyle();
+    setTimeout(renderIncoming,300);
+  });
+
+  const oldRenderAllV232 = renderAll;
+  renderAll = function(){
+    oldRenderAllV232();
+    applyIncomingTableFixStyle();
+    renderIncoming();
+  };
+})();
+
+/* GoldenBird Inventory v2.3.3｜Excel 匯出欄位正式版 */
+(function(){
+  function gbOrderItemName(order){
+    const item = (data.items || []).find(row => row.id === order.itemId);
+    return item?.name || order.itemName || order.deletedItemName || "";
+  }
+
+  function gbOrderItemCategory(order){
+    const item = (data.items || []).find(row => row.id === order.itemId);
+    return item?.category || "";
+  }
+
+  function gbOrderStatus(order){
+    const remain = Math.max(0, Number(order.qty || 0) - Number(order.received || 0));
+    if(order.status === "done" || remain === 0) return "已到貨";
+    if(Number(order.received || 0) > 0) return "部分到貨";
+    return order.status || "在途";
+  }
+
+  function gbProductCostTwd(order){
+    if(order.productCost !== undefined) return Number(order.productCost) || 0;
+    return Number(order.cost) || 0;
+  }
+
+  function gbFreightTwd(order){
+    return Number(order.freight) || 0;
+  }
+
+  function gbTotalCostTwd(order){
+    if(order.cost !== undefined) return Number(order.cost) || 0;
+    return gbProductCostTwd(order) + gbFreightTwd(order);
+  }
+
+  function buildExcelRows() {
+    const items = data.items || [];
+    const orders = data.orders || [];
+    const history = data.history || [];
+
+    const inventoryRows = items
+      .filter(item => !item.disabled)
+      .map(item => {
+        const transitQty = getTransitQuantityForItem(item.id);
+        const stock = Number(item.stock) || 0;
+        const safety = Number(item.safety) || 0;
+        return {
+          "品項ID": item.id,
+          "品項名稱": item.name,
+          "分類": item.category || "",
+          "管理部門": item.dept || "",
+          "目前庫存": stock,
+          "在途數量": transitQty,
+          "安全庫存": safety,
+          "狀態": item.disabled ? "停用" : "啟用",
+          "是否需補貨": stock < safety ? "是" : "否",
+          "建議補貨數": Math.max(safety - stock, 0),
+          "最後更新人": item.lastUpdatedBy || "",
+          "最後更新Email": item.lastUpdatedEmail || "",
+          "最後更新時間": item.lastUpdatedAt ? formatDateTime(item.lastUpdatedAt) : "",
+          "最後更新類型": item.lastUpdateType || "",
+          "備註": item.note || ""
+        };
+      });
+
+    const allItemRows = items.map(item => ({
+      "品項ID": item.id,
+      "品項名稱": item.name,
+      "分類": item.category || "",
+      "管理部門": item.dept || "",
+      "目前庫存": Number(item.stock) || 0,
+      "安全庫存": Number(item.safety) || 0,
+      "狀態": item.disabled ? "停用" : "啟用",
+      "最後更新人": item.lastUpdatedBy || "",
+      "最後更新時間": item.lastUpdatedAt ? formatDateTime(item.lastUpdatedAt) : "",
+      "備註": item.note || ""
+    }));
+
+    const transitRows = orders.map(order => ({
+      "叫貨ID": order.id || "",
+      "叫貨日期": order.date || "",
+      "品項ID": order.itemId || "",
+      "品項名稱": gbOrderItemName(order),
+      "分類": gbOrderItemCategory(order),
+      "叫貨數量": Number(order.qty) || 0,
+      "已到貨": Number(order.received) || 0,
+      "剩餘在途": Math.max(0, Number(order.qty || 0) - Number(order.received || 0)),
+      "商品成本": gbProductCostTwd(order),
+      "運費": gbFreightTwd(order),
+      "台幣合計": gbTotalCostTwd(order),
+      "原始幣別": order.currency || "TWD",
+      "原始商品成本": order.originalCost ?? gbProductCostTwd(order),
+      "原始運費": order.originalFreight ?? gbFreightTwd(order),
+      "匯率": order.fxRate || 1,
+      "來源": order.source || "",
+      "叫貨人": order.person || "",
+      "狀態": gbOrderStatus(order),
+      "備註": order.note || ""
+    }));
+
+    const costRows = items.map(item => {
+      const related = orders.filter(order => order.itemId === item.id && gbTotalCostTwd(order) > 0);
+      const totalCost = related.reduce((sum, order) => sum + gbTotalCostTwd(order), 0);
+      const productCost = related.reduce((sum, order) => sum + gbProductCostTwd(order), 0);
+      const freightCost = related.reduce((sum, order) => sum + gbFreightTwd(order), 0);
+      const totalQty = related.reduce((sum, order) => sum + (Number(order.qty) || 0), 0);
+      return {
+        "品項ID": item.id,
+        "品項名稱": item.name,
+        "分類": item.category || "",
+        "商品成本合計": productCost,
+        "運費合計": freightCost,
+        "進貨成本合計": totalCost,
+        "累計數量": totalQty,
+        "平均單位成本": totalQty ? Math.round((totalCost / totalQty) * 100) / 100 : ""
+      };
+    });
+
+    const reorderRows = items
+      .filter(item => !item.disabled && (Number(item.stock) || 0) < (Number(item.safety) || 0))
+      .map(item => ({
+        "品項ID": item.id,
+        "品項名稱": item.name,
+        "分類": item.category || "",
+        "目前庫存": Number(item.stock) || 0,
+        "安全庫存": Number(item.safety) || 0,
+        "建議補貨數": Math.max((Number(item.safety) || 0) - (Number(item.stock) || 0), 0),
+        "在途數量": getTransitQuantityForItem(item.id),
+        "管理部門": item.dept || ""
+      }));
+
+    const historyRows = history.map(record => ({
+      "時間": record.time ? formatDateTime(record.time) : "",
+      "品項ID": record.itemId || "",
+      "品項名稱": record.itemName || "",
+      "原庫存": normalizeForExcel(record.oldStock),
+      "新庫存": normalizeForExcel(record.newStock),
+      "異動": normalizeForExcel(record.change),
+      "類型": record.type || "",
+      "操作人": record.user || "",
+      "Email": record.email || "",
+      "備註": record.note || ""
+    }));
+
+    const infoRows = [{
+      "匯出時間": formatDateTime(Date.now()),
+      "匯出人": getCurrentUserLabel ? getCurrentUserLabel() : "",
+      "匯出Email": getCurrentUserEmail ? getCurrentUserEmail() : "",
+      "資料版本": "v2.3.3 Excel Export",
+      "備註": "由金雀庫存管理系統自動匯出；進貨成本已拆分商品成本、運費與台幣合計"
+    }];
+
+    return {
+      "目前庫存": inventoryRows,
+      "在途商品": transitRows,
+      "成本": costRows,
+      "補貨建議": reorderRows,
+      "所有品項": allItemRows,
+      "庫存異動": historyRows,
+      "系統資訊": infoRows
+    };
+  }
+
+  window.buildExcelRows = buildExcelRows;
+})();
+
+/* GoldenBird Inventory v2.3.4｜最近庫存異動聯動修正 */
+(function(){
+  function gbNow(){
+    return Date.now();
+  }
+
+  function gbCurrentUserLabelSafe(){
+    try{
+      if(typeof getCurrentUserLabel === "function") return getCurrentUserLabel();
+    }catch(error){}
+    const role = String(window.GB_AUTH?.role || document.getElementById("roleSelect")?.value || "").toLowerCase();
+    if(role === "emily") return "Emily";
+    if(role === "qing") return "青";
+    if(role === "boss") return "老闆";
+    return window.GB_AUTH?.user?.displayName || "員工";
+  }
+
+  function gbCurrentUserEmailSafe(){
+    try{
+      if(typeof getCurrentUserEmail === "function") return getCurrentUserEmail();
+    }catch(error){}
+    return window.GB_AUTH?.user?.email || "";
+  }
+
+  function gbPushHistory(item, oldStock, newStock, type, note){
+    if(!item) return;
+
+    data.history = Array.isArray(data.history) ? data.history : [];
+
+    const oldQty = Number(oldStock) || 0;
+    const newQty = Number(newStock) || 0;
+
+    const record = {
+      id: `H${Date.now()}${Math.floor(Math.random()*1000)}`,
+      time: gbNow(),
+      itemId: item.id,
+      itemName: item.name,
+      oldStock: oldQty,
+      newStock: newQty,
+      change: newQty - oldQty,
+      type: type || "庫存異動",
+      user: gbCurrentUserLabelSafe(),
+      email: gbCurrentUserEmailSafe(),
+      note: note || ""
+    };
+
+    data.history.unshift(record);
+    data.history = data.history.slice(0, 1000);
+
+    item.lastUpdatedBy = record.user;
+    item.lastUpdatedEmail = record.email;
+    item.lastUpdatedAt = record.time;
+    item.lastUpdateType = record.type;
+  }
+
+  // 覆蓋 addStockHistory，確保所有呼叫都有寫入最近庫存異動
+  window.addStockHistory = function(item, oldStock, newStock, type, note){
+    gbPushHistory(item, oldStock, newStock, type, note);
+  };
+  addStockHistory = window.addStockHistory;
+
+  function gbRefreshHistoryViews(){
+    if(typeof renderHistoryPage === "function"){
+      try{ renderHistoryPage(); }catch(error){ console.warn(error); }
+    }
+    if(typeof renderStockHistory === "function"){
+      try{ renderStockHistory(); }catch(error){ console.warn(error); }
+    }
+  }
+
+  // 修正快速盤點：更新後確保異動頁刷新
+  if(typeof confirmQuickStockUpdate === "function"){
+    const oldConfirmQuickStockUpdate = confirmQuickStockUpdate;
+    confirmQuickStockUpdate = function(){
+      oldConfirmQuickStockUpdate();
+      gbRefreshHistoryViews();
+    };
+    window.confirmQuickStockUpdate = confirmQuickStockUpdate;
+  }
+
+  // 修正到貨：若舊版流程沒有寫 history，這裡補上
+  if(typeof receiveOrder === "function"){
+    const oldReceiveOrder = receiveOrder;
+    receiveOrder = function(orderId){
+      const order = (data.orders || []).find(row => row.id === orderId);
+      const item = order ? getItem(order.itemId) : null;
+      const oldStock = item ? Number(item.stock || 0) : null;
+
+      oldReceiveOrder(orderId);
+
+      const newItem = order ? getItem(order.itemId) : null;
+      if(newItem && oldStock !== null && Number(newItem.stock || 0) !== oldStock){
+        const already = (data.history || [])[0];
+        const recentEnough = already && already.itemId === newItem.id && Math.abs(Date.now() - Number(already.time || 0)) < 1500;
+        if(!recentEnough){
+          gbPushHistory(newItem, oldStock, Number(newItem.stock || 0), "到貨入庫", "在途商品確認到貨");
+          saveData();
+        }
+      }
+
+      gbRefreshHistoryViews();
+    };
+    window.receiveOrder = receiveOrder;
+  }
+
+  // 修正新增品項初始庫存：若有初始庫存但未寫 history，補上
+  if(typeof createNewItem === "function"){
+    const oldCreateNewItem = createNewItem;
+    createNewItem = function(args){
+      const beforeIds = new Set((data.items || []).map(item => item.id));
+      oldCreateNewItem(args);
+
+      const created = (data.items || []).find(item => !beforeIds.has(item.id));
+      if(created && Number(created.stock || 0) > 0){
+        const already = (data.history || [])[0];
+        const recentEnough = already && already.itemId === created.id && Math.abs(Date.now() - Number(already.time || 0)) < 1500;
+        if(!recentEnough){
+          gbPushHistory(created, 0, Number(created.stock || 0), "新增品項", "初始庫存");
+          saveData();
+        }
+      }
+
+      gbRefreshHistoryViews();
+    };
+    window.createNewItem = createNewItem;
+  }
+
+  const oldRenderAllV234 = renderAll;
+  renderAll = function(){
+    oldRenderAllV234();
+    gbRefreshHistoryViews();
+  };
+
+  document.addEventListener("DOMContentLoaded", ()=>{
+    setTimeout(gbRefreshHistoryViews, 300);
+    setTimeout(gbRefreshHistoryViews, 1000);
+  });
+
+  window.gbDiagnosticHistory = function(){
+    return {
+      historyCount: Array.isArray(data.history) ? data.history.length : 0,
+      latest: Array.isArray(data.history) ? data.history[0] : null,
+      currentTab,
+      historyListFound: !!document.getElementById("historyPageList")
+    };
+  };
+})();
+
+
+/* GoldenBird Inventory v3.0 Stable｜正式整合版標記 */
+window.GB_VERSION = "goldenbird-inventory-v3.0-stable";
