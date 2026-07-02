@@ -6991,3 +6991,194 @@ window.GB_VERSION = "goldenbird-inventory-v3.0.1-firebase-duplicate-fix";
     };
   };
 })();
+
+/* GoldenBird Inventory v3.0.9｜品項排序與手機在途商品優化 */
+(function(){
+  function getItemCreatedTime(item){
+    const value = item.createdAt || item.updatedAt || item.lastUpdatedAt || 0;
+    if(typeof value === "number") return value;
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+
+  function sortItemsNewestFirst(){
+    if(typeof data === "undefined" || !Array.isArray(data.items)) return;
+    data.items.sort((a,b)=>{
+      const bt = getItemCreatedTime(b);
+      const at = getItemCreatedTime(a);
+      if(bt !== at) return bt - at;
+      return String(b.id || "").localeCompare(String(a.id || ""));
+    });
+  }
+
+  const oldCreateNewItemV309 = typeof createNewItem === "function" ? createNewItem : null;
+  if(oldCreateNewItemV309){
+    createNewItem = function(args){
+      oldCreateNewItemV309(args);
+
+      const newest = data.items && data.items[0];
+      const now = Date.now();
+
+      // 若原本新增品項沒有 createdAt，補在最新一筆新增品項上
+      const candidates = (data.items || []).filter(item => !item.createdAt);
+      const created = candidates[candidates.length - 1];
+      if(created){
+        created.createdAt = now;
+        created.updatedAt = now;
+      }
+
+      sortItemsNewestFirst();
+      saveData();
+      renderAll();
+    };
+    window.createNewItem = createNewItem;
+  }
+
+  function renderItemManageNewestFirst(){
+    if(typeof renderItemManageTable !== "function") return;
+    sortItemsNewestFirst();
+    renderItemManageTable();
+  }
+
+  function applyV309Ui(){
+    if(document.getElementById("gbV309UiCss")) return;
+
+    const style = document.createElement("style");
+    style.id = "gbV309UiCss";
+    style.textContent = `
+      @media(max-width:760px){
+        /* 手機版在途商品：改為清楚的小型資訊列 */
+        #incomingTable tr{
+          display:grid !important;
+          grid-template-columns:1fr auto !important;
+          grid-template-areas:
+            "title status"
+            "stats stats"
+            "action action" !important;
+          gap:8px 10px !important;
+          padding:12px 14px !important;
+          border-radius:18px !important;
+          background:#fff !important;
+          border:1px solid var(--line) !important;
+          box-shadow:0 3px 10px rgba(0,0,0,.035) !important;
+          margin-bottom:10px !important;
+        }
+
+        #incomingTable td{
+          display:block !important;
+          border:0 !important;
+          padding:0 !important;
+          min-width:0 !important;
+          white-space:normal !important;
+        }
+
+        #incomingTable td:nth-child(1){
+          display:none !important;
+        }
+
+        #incomingTable td:nth-child(2){
+          grid-area:title !important;
+          font-size:17px !important;
+          font-weight:900 !important;
+          color:var(--text) !important;
+          line-height:1.35 !important;
+        }
+
+        #incomingTable td:nth-child(7){
+          grid-area:status !important;
+          justify-self:end !important;
+          align-self:start !important;
+        }
+
+        #incomingTable td:nth-child(3),
+        #incomingTable td:nth-child(4),
+        #incomingTable td:nth-child(5),
+        #incomingTable td:nth-child(6){
+          grid-area:stats !important;
+          display:inline-flex !important;
+          align-items:center !important;
+          justify-content:flex-start !important;
+          width:auto !important;
+          margin:0 !important;
+          color:var(--muted) !important;
+          font-size:13px !important;
+          font-weight:800 !important;
+        }
+
+        #incomingTable td:nth-child(3)::before{ content:"叫貨 "; color:var(--main); }
+        #incomingTable td:nth-child(4)::before{ content:"已到 "; color:var(--main); }
+        #incomingTable td:nth-child(5)::before{ content:"剩餘 "; color:var(--main); }
+        #incomingTable td:nth-child(6)::before{ content:"人員 "; color:var(--main); }
+
+        #incomingTable td:nth-child(3){ padding-top:2px !important; }
+        #incomingTable td:nth-child(4){ margin-left:82px !important; }
+        #incomingTable td:nth-child(5){ margin-left:162px !important; }
+        #incomingTable td:nth-child(6){ margin-left:248px !important; }
+
+        #incomingTable td:nth-child(8),
+        #incomingTable td:nth-child(9){
+          grid-area:action !important;
+          margin-top:8px !important;
+        }
+
+        #incomingTable td:nth-child(8){
+          width:46% !important;
+        }
+
+        #incomingTable td:nth-child(9){
+          width:50% !important;
+          justify-self:end !important;
+          margin-left:auto !important;
+        }
+
+        #incomingTable .receive-input,
+        #incomingTable .receive-btn{
+          height:42px !important;
+          border-radius:14px !important;
+          font-size:15px !important;
+        }
+
+        #incomingTable .receive-input{
+          width:100% !important;
+        }
+
+        #incomingTable .receive-btn{
+          width:100% !important;
+          white-space:nowrap !important;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  const oldRenderAllV309 = renderAll;
+  renderAll = function(){
+    sortItemsNewestFirst();
+    oldRenderAllV309();
+    applyV309Ui();
+
+    // 後台品項管理進入時，再保險刷新一次
+    if(currentTab === "admin"){
+      setTimeout(renderItemManageNewestFirst, 50);
+    }
+  };
+
+  document.addEventListener("DOMContentLoaded",()=>{
+    sortItemsNewestFirst();
+    applyV309Ui();
+    setTimeout(renderItemManageNewestFirst, 500);
+  });
+
+  window.gbItemOrderCheck = function(){
+    return {
+      version: window.GB_VERSION,
+      firstItems: (data.items || []).slice(0,5).map(item => ({
+        name:item.name,
+        createdAt:item.createdAt || "",
+        updatedAt:item.updatedAt || item.lastUpdatedAt || ""
+      })),
+      incomingRows: document.querySelectorAll("#incomingTable tr").length,
+      hasV309Css: !!document.getElementById("gbV309UiCss")
+    };
+  };
+})();
