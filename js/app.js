@@ -8024,3 +8024,184 @@ window.GB_VERSION = "goldenbird-inventory-v3.0.1-firebase-duplicate-fix";
     };
   };
 })();
+
+/* GoldenBird Inventory v3.2.2｜手機版 UI 收尾微調 */
+(function(){
+  function applyV322MobileFinalPolish(){
+    if(document.getElementById("gbV322MobileFinalPolishCss")) return;
+
+    const style = document.createElement("style");
+    style.id = "gbV322MobileFinalPolishCss";
+    style.textContent = `
+      /* 桌機保留排序提示，手機隱藏避免誤解 */
+      @media(max-width:760px){
+        .sort-hint,
+        .inventory-sort-hint,
+        [data-role="sort-hint"],
+        .hint:has-text("庫存"),
+        .notice:has-text("庫存"){
+          display:none !important;
+        }
+
+        /* 若提示文字沒有獨立 class，保守隱藏庫存總覽內的淡黃色排序提示 */
+        #inventory .soft-note,
+        #inventory .yellow-note,
+        #inventory .info-note{
+          display:none !important;
+        }
+
+        /* 叫貨日期與所有表單欄位不超出外框 */
+        input,
+        select,
+        textarea,
+        button{
+          max-width:100% !important;
+          box-sizing:border-box !important;
+        }
+
+        input[type="date"],
+        #manualOrderDate{
+          display:block !important;
+          width:100% !important;
+          max-width:100% !important;
+          min-width:0 !important;
+          box-sizing:border-box !important;
+          -webkit-appearance:none !important;
+          appearance:none !important;
+          padding-left:14px !important;
+          padding-right:14px !important;
+        }
+
+        .field,
+        .form-grid > *,
+        .manual-order-grid > *,
+        .order-form > *,
+        .card,
+        .panel,
+        section{
+          max-width:100% !important;
+          box-sizing:border-box !important;
+        }
+
+        /* 手機版在途已改獨立小卡，隱藏舊 table scroll 條 */
+        #incoming .table-scroll{
+          display:none !important;
+          overflow:hidden !important;
+          height:0 !important;
+          max-height:0 !important;
+          padding:0 !important;
+          margin:0 !important;
+          border:0 !important;
+        }
+
+        #incoming{
+          overflow-x:hidden !important;
+        }
+
+        /* 叫貨紀錄標題避免拆成兩行 */
+        #admin h2,
+        #admin h3,
+        #admin .section-title,
+        #admin .card-title{
+          word-break:keep-all !important;
+          overflow-wrap:normal !important;
+        }
+
+        /* 針對「叫貨紀錄（含成本）」標題微調 */
+        #admin h2,
+        #admin h3{
+          font-size:clamp(22px, 5.6vw, 30px) !important;
+          line-height:1.25 !important;
+        }
+
+        /* 右側提示 badge 避免把標題擠成兩行 */
+        #admin .section-head,
+        #admin .card-head,
+        #admin .title-row{
+          display:flex !important;
+          align-items:center !important;
+          gap:8px !important;
+          flex-wrap:nowrap !important;
+        }
+
+        #admin .section-head > *,
+        #admin .card-head > *,
+        #admin .title-row > *{
+          min-width:0 !important;
+        }
+
+        #admin .section-head .badge,
+        #admin .card-head .badge,
+        #admin .title-row .badge{
+          flex:0 0 auto !important;
+          white-space:nowrap !important;
+        }
+
+        /* 手機版在途小卡再保險：完全不超寬 */
+        .incoming-mobile-final-cards,
+        .incoming-mobile-final-card{
+          width:100% !important;
+          max-width:100% !important;
+          box-sizing:border-box !important;
+          overflow:hidden !important;
+        }
+
+        .incoming-final-actions{
+          width:100% !important;
+          max-width:100% !important;
+          box-sizing:border-box !important;
+        }
+
+        /* 浮動按鈕圖示置中 */
+        #gbFloatActions button,
+        #gbHomeBtn,
+        #gbTopBtn{
+          display:flex !important;
+          align-items:center !important;
+          justify-content:center !important;
+          line-height:1 !important;
+          padding:0 !important;
+          text-align:center !important;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function hideInventorySortHintTextOnMobile(){
+    if(window.innerWidth > 760) return;
+
+    const keywords = ["點庫存", "點擊庫存", "可點擊庫存", "庫存數量切換排序"];
+    document.querySelectorAll("body *").forEach(el => {
+      if(el.children.length) return;
+      const text = (el.textContent || "").trim();
+      if(!text) return;
+      if(keywords.some(k => text.includes(k))){
+        el.style.display = "none";
+      }
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    applyV322MobileFinalPolish();
+    setTimeout(hideInventorySortHintTextOnMobile, 300);
+    setTimeout(hideInventorySortHintTextOnMobile, 1000);
+  });
+
+  const oldRenderAllV322 = renderAll;
+  renderAll = function(){
+    oldRenderAllV322();
+    applyV322MobileFinalPolish();
+    hideInventorySortHintTextOnMobile();
+  };
+
+  window.gbMobileFinalPolishCheck = function(){
+    return {
+      version: window.GB_VERSION,
+      hasV322Css: !!document.getElementById("gbV322MobileFinalPolishCss"),
+      mobile: window.innerWidth <= 760,
+      incomingCards: document.querySelectorAll("#incomingMobileFinalCards .incoming-mobile-final-card").length,
+      syncText: document.getElementById("syncStatusText")?.textContent
+    };
+  };
+})();
