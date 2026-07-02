@@ -7646,3 +7646,295 @@ window.GB_VERSION = "goldenbird-inventory-v3.0.1-firebase-duplicate-fix";
     };
   };
 })();
+
+/* GoldenBird Inventory v3.2.0｜手機版在途商品獨立小卡 */
+(function(){
+  function gbIncomingIsMobile(){
+    return window.innerWidth <= 760;
+  }
+
+  function gbIncomingEscape(value){
+    if(typeof escapeHtml === "function") return escapeHtml(value);
+    return String(value ?? "")
+      .replaceAll("&","&amp;")
+      .replaceAll("<","&lt;")
+      .replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;")
+      .replaceAll("'","&#039;");
+  }
+
+  function gbIncomingItem(order){
+    return typeof getItem === "function" ? getItem(order.itemId) : (data.items || []).find(item => item.id === order.itemId);
+  }
+
+  function gbRenderIncomingMobileCards(){
+    const host = document.getElementById("incomingMobileCards");
+    if(!host) return;
+
+    const activeOrders = (data.orders || [])
+      .filter(order => Number(order.qty || 0) - Number(order.received || 0) > 0)
+      .sort((a,b) => String(a.date || "").localeCompare(String(b.date || "")));
+
+    if(!activeOrders.length){
+      host.innerHTML = `<div class="incoming-empty">目前沒有在途商品</div>`;
+      return;
+    }
+
+    host.innerHTML = activeOrders.map(order => {
+      const item = gbIncomingItem(order);
+      const itemName = item ? item.name : (order.deletedItemName || "已刪除品項");
+      const qty = Number(order.qty || 0);
+      const received = Number(order.received || 0);
+      const remain = Math.max(0, qty - received);
+      const status = order.status || (received > 0 ? "部分到貨" : "在途");
+      const badgeClass = status === "部分到貨" ? "warn" : "info";
+
+      return `
+        <article class="incoming-mobile-card ${order.id === lastCreatedOrderId ? "highlight-row" : ""}">
+          <div class="incoming-card-top">
+            <div class="incoming-card-title">${gbIncomingEscape(itemName)}</div>
+            <span class="badge ${badgeClass}">${gbIncomingEscape(status)}</span>
+          </div>
+
+          <div class="incoming-card-stats">
+            <div class="incoming-stat">
+              <span>叫貨</span>
+              <strong>${qty}</strong>
+            </div>
+            <div class="incoming-stat">
+              <span>已到</span>
+              <strong>${received}</strong>
+            </div>
+            <div class="incoming-stat">
+              <span>剩餘</span>
+              <strong>${remain}</strong>
+            </div>
+          </div>
+
+          <div class="incoming-card-meta">
+            <span>叫貨人 ${gbIncomingEscape(order.person || "-")}</span>
+          </div>
+
+          <div class="incoming-card-actions">
+            <input class="receive-input incoming-mobile-input" data-id="${order.id}" type="number" min="1" max="${remain}" placeholder="本次到貨">
+            <button class="small receive-btn incoming-mobile-btn" data-id="${order.id}" type="button">確認到貨</button>
+          </div>
+        </article>
+      `;
+    }).join("");
+
+    host.querySelectorAll(".receive-btn").forEach(button => {
+      button.onclick = () => {
+        if(typeof receiveOrder === "function") receiveOrder(button.dataset.id);
+      };
+    });
+  }
+
+  function gbEnsureIncomingMobileHost(){
+    const incomingSection = document.getElementById("incoming");
+    if(!incomingSection) return;
+
+    let host = document.getElementById("incomingMobileCards");
+    if(!host){
+      host = document.createElement("div");
+      host.id = "incomingMobileCards";
+      host.className = "incoming-mobile-cards";
+      const tableScroll = incomingSection.querySelector(".table-scroll");
+      if(tableScroll){
+        tableScroll.insertAdjacentElement("afterend", host);
+      }else{
+        incomingSection.appendChild(host);
+      }
+    }
+  }
+
+  function gbApplyIncomingMobileCardCss(){
+    if(document.getElementById("gbV320IncomingMobileCardCss")) return;
+
+    const style = document.createElement("style");
+    style.id = "gbV320IncomingMobileCardCss";
+    style.textContent = `
+      .incoming-mobile-cards{
+        display:none;
+      }
+
+      @media(max-width:760px){
+        #incoming .table-scroll{
+          display:none !important;
+        }
+
+        .incoming-mobile-cards{
+          display:block !important;
+          width:100%;
+          max-width:100%;
+          box-sizing:border-box;
+        }
+
+        .incoming-mobile-card{
+          width:100%;
+          max-width:100%;
+          box-sizing:border-box;
+          background:#fff;
+          border:1px solid var(--line);
+          border-radius:18px;
+          padding:12px 14px;
+          margin:0 0 10px;
+          box-shadow:0 3px 10px rgba(0,0,0,.035);
+        }
+
+        .incoming-card-top{
+          display:grid;
+          grid-template-columns:1fr auto;
+          gap:10px;
+          align-items:start;
+          margin-bottom:9px;
+        }
+
+        .incoming-card-title{
+          font-size:17px;
+          font-weight:900;
+          line-height:1.35;
+          color:var(--text);
+          overflow:hidden;
+          display:-webkit-box;
+          -webkit-line-clamp:2;
+          -webkit-box-orient:vertical;
+        }
+
+        .incoming-card-top .badge{
+          display:inline-flex;
+          align-items:center;
+          justify-content:center;
+          padding:6px 11px;
+          border-radius:999px;
+          font-size:13px;
+          font-weight:900;
+          white-space:nowrap;
+        }
+
+        .incoming-card-stats{
+          display:grid;
+          grid-template-columns:repeat(3,1fr);
+          gap:8px;
+          margin-bottom:8px;
+        }
+
+        .incoming-stat{
+          min-width:0;
+        }
+
+        .incoming-stat span{
+          display:inline-flex;
+          align-items:center;
+          padding:3px 7px;
+          margin-bottom:4px;
+          border-radius:999px;
+          background:#f3f5f1;
+          color:var(--muted);
+          font-size:12px;
+          font-weight:900;
+        }
+
+        .incoming-stat strong{
+          display:block;
+          font-size:17px;
+          line-height:1.2;
+          font-weight:900;
+          color:var(--text);
+        }
+
+        .incoming-card-meta{
+          margin-bottom:9px;
+        }
+
+        .incoming-card-meta span{
+          display:inline-flex;
+          align-items:center;
+          width:max-content;
+          max-width:100%;
+          padding:4px 9px;
+          border-radius:999px;
+          background:#f3f5f1;
+          color:var(--muted);
+          font-size:12px;
+          font-weight:900;
+        }
+
+        .incoming-card-actions{
+          display:grid;
+          grid-template-columns:42% 1fr;
+          gap:10px;
+          align-items:center;
+        }
+
+        .incoming-mobile-input,
+        .incoming-mobile-btn{
+          width:100% !important;
+          height:42px !important;
+          min-width:0 !important;
+          border-radius:15px !important;
+          box-sizing:border-box !important;
+          font-size:15px !important;
+        }
+
+        .incoming-mobile-input{
+          text-align:center !important;
+          padding:0 12px !important;
+        }
+
+        .incoming-mobile-btn{
+          font-weight:900 !important;
+          white-space:nowrap !important;
+          padding:0 10px !important;
+        }
+
+        .incoming-empty{
+          padding:18px;
+          border:1px dashed var(--line);
+          border-radius:18px;
+          color:var(--muted);
+          font-weight:800;
+          background:#fff;
+          text-align:center;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function gbRenderIncomingWithMobile(){
+    gbEnsureIncomingMobileHost();
+    gbApplyIncomingMobileCardCss();
+
+    // 桌機維持原本表格；手機額外渲染獨立卡片
+    if(gbIncomingIsMobile()){
+      gbRenderIncomingMobileCards();
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    gbEnsureIncomingMobileHost();
+    gbApplyIncomingMobileCardCss();
+    setTimeout(gbRenderIncomingWithMobile, 300);
+  });
+
+  window.addEventListener("resize", () => {
+    gbRenderIncomingWithMobile();
+  });
+
+  const oldRenderAllV320 = renderAll;
+  renderAll = function(){
+    oldRenderAllV320();
+    gbRenderIncomingWithMobile();
+  };
+
+  window.gbIncomingMobileCardCheck = function(){
+    return {
+      version: window.GB_VERSION,
+      mobile: gbIncomingIsMobile(),
+      hasHost: !!document.getElementById("incomingMobileCards"),
+      cardCount: document.querySelectorAll("#incomingMobileCards .incoming-mobile-card").length,
+      tableRows: document.querySelectorAll("#incomingTable tr").length
+    };
+  };
+})();
