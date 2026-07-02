@@ -13,6 +13,7 @@ const firebaseConfig = {
 
 const USER_ROLES = {
   "goldenbirdhello@gmail.com": "staff",
+  "kuangchieh.tai0505@gmail.com":"staff",
   "unrealmonde@gmail.com": "emily",
   "hey2501@gmail.com": "qing",
   "process@example.com": "process",
