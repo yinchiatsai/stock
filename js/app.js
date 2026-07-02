@@ -2284,95 +2284,160 @@ function gbDiagnostic() {
 window.gbDiagnostic = gbDiagnostic;
 
 
-/* GoldenBird Inventory v2.0.4｜庫存總覽兩行資訊列 UI */
-window.GB_VERSION = "goldenbird-inventory-v2.0.4-compact-inventory-ui";
+/* GoldenBird Inventory v2.1 Stable｜桌機排版回復＋資訊可讀性修正 */
+window.GB_VERSION = "goldenbird-inventory-v2.1-stable-final-ui";
 
-function ensureInventoryCompactInfoStyles() {
-  if (document.getElementById("inventoryCompactInfoStyles")) return;
+function ensureV21StableStyles() {
+  if (document.getElementById("v21StableStyles")) return;
+
   const style = document.createElement("style");
-  style.id = "inventoryCompactInfoStyles";
+  style.id = "v21StableStyles";
   style.textContent = `
-    #inventoryGrid .inventory-list{gap:8px}
-    #inventoryGrid .inventory-row:not(.header){
-      display:grid!important;
-      grid-template-columns:minmax(220px,1.5fr) minmax(260px,1.2fr) auto auto;
-      grid-template-areas:"name numbers status action" "name meta meta meta";
-      align-items:center;gap:3px 14px;padding:10px 14px!important;min-height:58px;border-radius:16px;position:relative
+    [data-tab="ocr"], #ocr, .mapping-section, #orderScreenshotInput, #screenshotPreview {
+      display: none !important;
     }
-    #inventoryGrid .inventory-name{grid-area:name;min-width:0}
-    #inventoryGrid .inventory-name strong{display:block;font-size:15.5px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    #inventoryGrid .meta-tags{grid-area:meta;margin-top:0;display:block!important;color:#5f7075;font-size:12.5px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    #inventoryGrid .meta-tag{display:inline!important;padding:0!important;margin:0!important;background:transparent!important;border:0!important;color:inherit!important;font-size:inherit!important;max-width:none!important}
-    #inventoryGrid .meta-tag + .meta-tag::before{content:"・";color:#9aa7aa;margin:0 2px}
-    #inventoryGrid .inventory-row>div:nth-child(2),#inventoryGrid .inventory-row>div:nth-child(3),#inventoryGrid .inventory-row>div:nth-child(4),#inventoryGrid .inventory-row>div:nth-child(6){grid-area:numbers;font-size:14px;line-height:1.4;color:#344f55;white-space:nowrap}
-    #inventoryGrid .inventory-row>div:nth-child(2){justify-self:start;margin-left:0}
-    #inventoryGrid .inventory-row>div:nth-child(3){justify-self:start;margin-left:70px}
-    #inventoryGrid .inventory-row>div:nth-child(4){justify-self:start;margin-left:140px}
-    #inventoryGrid .inventory-row>div:nth-child(6){justify-self:start;margin-left:210px}
-    #inventoryGrid .stock-cell::before{content:"庫";color:#6d7c80;font-weight:700;margin-right:2px}
-    #inventoryGrid .incoming-cell::before{content:"途";color:#6d7c80;font-weight:700;margin-right:2px}
-    #inventoryGrid .safety-cell::before{content:"安";color:#6d7c80;font-weight:700;margin-right:2px}
-    #inventoryGrid .suggest-cell::before{content:"補";color:#6d7c80;font-weight:700;margin-right:2px}
-    #inventoryGrid .inventory-row>div:nth-child(5){grid-area:status;justify-self:end;align-self:center}
-    #inventoryGrid .badge{font-size:12px;padding:4px 8px;white-space:nowrap}
-    #inventoryGrid .quick-stock-btn{grid-area:action;justify-self:end;align-self:center;width:30px!important;height:30px!important;min-width:30px!important;padding:0!important;border-radius:999px!important;font-size:0!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;background:#fff!important;border:1px solid var(--line)!important;box-shadow:0 4px 12px rgba(0,0,0,.06);opacity:.7;margin:0!important}
-    #inventoryGrid .quick-stock-btn::before{content:"✏️";font-size:13px}
-    @media(max-width:760px){
-      #inventoryGrid .inventory-row:not(.header){grid-template-columns:1fr auto;grid-template-areas:"name status" "numbers action" "meta meta";gap:4px 8px;padding:9px 11px!important;min-height:66px}
-      #inventoryGrid .inventory-row.header{display:none!important}
-      #inventoryGrid .inventory-row>div:nth-child(2),#inventoryGrid .inventory-row>div:nth-child(3),#inventoryGrid .inventory-row>div:nth-child(4),#inventoryGrid .inventory-row>div:nth-child(6){font-size:13.5px}
-      #inventoryGrid .inventory-row>div:nth-child(3){margin-left:58px}
-      #inventoryGrid .inventory-row>div:nth-child(4){margin-left:116px}
-      #inventoryGrid .inventory-row>div:nth-child(6){margin-left:174px}
-      #inventoryGrid .meta-tags{font-size:12px}
-      #inventoryGrid .quick-stock-btn{width:28px!important;height:28px!important;min-width:28px!important}
-    }`;
+
+    /* 回復桌機版表格感，不再覆蓋成手機 grid */
+    @media (min-width: 761px) {
+      #inventoryGrid .inventory-row:not(.header) {
+        min-height: 76px;
+      }
+
+      #inventoryGrid .meta-tags {
+        margin-top: 6px;
+        color: #5f7075 !important;
+        font-size: 13px !important;
+        line-height: 1.45;
+        font-weight: 600;
+      }
+
+      #inventoryGrid .meta-tag {
+        color: #5f7075 !important;
+        background: #f6f2e8 !important;
+        border-color: transparent !important;
+      }
+
+      #inventoryGrid .quick-stock-btn {
+        width: 32px !important;
+        height: 32px !important;
+        min-width: 32px !important;
+        padding: 0 !important;
+        border-radius: 999px !important;
+        font-size: 0 !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        background: #ffffff !important;
+        border: 1px solid var(--line) !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,.06);
+        opacity: .7;
+      }
+
+      #inventoryGrid .quick-stock-btn::before {
+        content: "✏️";
+        font-size: 14px;
+      }
+
+      #inventoryGrid .inventory-row:hover .quick-stock-btn {
+        opacity: 1;
+      }
+    }
+
+    @media (max-width: 760px) {
+      #inventoryGrid .meta-tags {
+        color: #5f7075 !important;
+        font-size: 12px !important;
+        line-height: 1.45;
+        font-weight: 600;
+      }
+
+      #inventoryGrid .quick-stock-btn {
+        width: 28px !important;
+        height: 28px !important;
+        min-width: 28px !important;
+        font-size: 0 !important;
+        padding: 0 !important;
+      }
+
+      #inventoryGrid .quick-stock-btn::before {
+        content: "✏️";
+        font-size: 13px;
+      }
+    }
+  `;
   document.head.appendChild(style);
 }
 
-function compactLastUpdateMeta(){
-  document.querySelectorAll("#inventoryGrid .meta-tags").forEach(meta=>{
-    meta.innerHTML = meta.innerHTML.replace(/最後更新[:：]\s*/g,"").replace(/｜/g,"・").replace(/\s{2,}/g," ");
+function removeAiOcrResidueV21() {
+  document.querySelectorAll('[data-tab="ocr"], #ocr').forEach(el => el.remove());
+  if (typeof currentTab !== "undefined" && currentTab === "ocr") switchTab("overview");
+}
+
+function improveInventoryMetaTextV21() {
+  document.querySelectorAll("#inventoryGrid .meta-tags").forEach(meta => {
+    meta.innerHTML = meta.innerHTML
+      .replace(/最後更新[:：]\s*/g, "")
+      .replace(/2026\/(\d{2}\/\d{2}\s+\d{2}:\d{2})/g, "$1")
+      .replace(/2025\/(\d{2}\/\d{2}\s+\d{2}:\d{2})/g, "$1")
+      .replace(/｜/g, "・")
+      .replace(/\s{2,}/g, " ");
   });
 }
 
-document.addEventListener("DOMContentLoaded",()=>{ensureInventoryCompactInfoStyles();setTimeout(compactLastUpdateMeta,300);});
-const gbV204RenderAll=renderAll;
-renderAll=function(){gbV204RenderAll();ensureInventoryCompactInfoStyles();compactLastUpdateMeta();};
-
-
-/* GoldenBird Inventory v2.0.5｜徹底移除 AI/OCR 入口 */
-window.GB_VERSION = "goldenbird-inventory-v2.0.5-no-ai-ocr-html-clean";
-
-function removeAiOcrResidue() {
-  document.querySelectorAll('[data-tab="ocr"]').forEach(el => el.remove());
-  document.querySelectorAll('#ocr').forEach(el => el.remove());
-
-  document.querySelectorAll("button, .tab, .badge, .card, section").forEach(el => {
-    const text = (el.textContent || "").trim();
-    if (
-      text.includes("AI辨識") ||
-      text.includes("AI 辨識") ||
-      text.includes("OCR") ||
-      text.includes("圖片辨識") ||
-      text.includes("採購辨識")
-    ) {
-      if (el.matches("button, .tab, .badge")) el.remove();
-    }
-  });
-
-  if (typeof currentTab !== "undefined" && currentTab === "ocr") {
-    switchTab("overview");
+function clearHistoryRecordsV21() {
+  const role = String(window.GB_AUTH?.role || document.getElementById("roleSelect")?.value || "").toLowerCase();
+  if (!["boss", "qing", "emily"].includes(role)) {
+    showToast("只有管理員可清除異動紀錄");
+    return;
   }
+
+  const ok = window.confirm("確定要清除所有測試異動紀錄嗎？\n\n只會清除「最近庫存異動」，不會影響目前庫存、品項或在途商品。");
+  if (!ok) return;
+
+  data.history = [];
+  saveData();
+  renderAll();
+  const historyList = document.getElementById("historyPageList");
+  if (historyList) historyList.innerHTML = "尚無庫存異動紀錄";
+  showToast("已清除庫存異動紀錄");
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  removeAiOcrResidue();
-  setTimeout(removeAiOcrResidue, 500);
+  ensureV21StableStyles();
+  removeAiOcrResidueV21();
+  setTimeout(improveInventoryMetaTextV21, 300);
+
+  const clearBtn = document.getElementById("clearHistoryBtn");
+  if (clearBtn) {
+    clearBtn.onclick = event => {
+      event.preventDefault();
+      clearHistoryRecordsV21();
+    };
+  }
 });
 
-const gbV205RenderAll = renderAll;
+const gbV21RenderAll = renderAll;
 renderAll = function() {
-  gbV205RenderAll();
-  removeAiOcrResidue();
+  gbV21RenderAll();
+  ensureV21StableStyles();
+  removeAiOcrResidueV21();
+  improveInventoryMetaTextV21();
+
+  const clearBtn = document.getElementById("clearHistoryBtn");
+  if (clearBtn) {
+    clearBtn.onclick = event => {
+      event.preventDefault();
+      clearHistoryRecordsV21();
+    };
+  }
+};
+
+window.gbDiagnostic = function() {
+  return {
+    version: window.GB_VERSION,
+    firebaseReady: !!window.GB_FIREBASE?.ready,
+    authReady: !!window.GB_AUTH?.ready,
+    role: window.GB_AUTH?.role || document.getElementById("roleSelect")?.value,
+    currentTab
+  };
 };
