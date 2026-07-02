@@ -10355,3 +10355,231 @@ window.GB_VERSION = "goldenbird-inventory-v3.0.1-firebase-duplicate-fix";
     };
   };
 })();
+
+/* GoldenBird Inventory v3.3.2｜叫貨紀錄欄位對齊保險修正 */
+(function(){
+  window.GB_VERSION = "goldenbird-inventory-v3.3.2-order-history-column-align";
+
+  function gbV332Num(value){
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function gbV332Escape(value){
+    if(typeof escapeHtml === "function") return escapeHtml(value);
+    return String(value ?? "")
+      .replaceAll("&","&amp;")
+      .replaceAll("<","&lt;")
+      .replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;")
+      .replaceAll("'","&#039;");
+  }
+
+  function gbV332CanSeeCost(){
+    const role = String(window.GB_AUTH?.role || document.getElementById("roleSelect")?.value || "staff").toLowerCase();
+    return ["boss","emily","qing"].includes(role);
+  }
+
+  function gbV332Money(value){
+    return `NT$ ${Math.round(gbV332Num(value)).toLocaleString("zh-TW")}`;
+  }
+
+  function gbV332FindOrderByRow(date, itemName, qty, received){
+    const normalize = value => String(value || "").replace(/\s+/g,"").trim();
+    return (data.orders || []).find(order=>{
+      const item = typeof getItem === "function" ? getItem(order.itemId) : (data.items || []).find(i=>i.id===order.itemId);
+      const name = item?.name || order.deletedItemName || order.itemName || "";
+      return String(order.date || "") === String(date || "") &&
+        normalize(name) === normalize(itemName) &&
+        gbV332Num(order.qty) === gbV332Num(qty) &&
+        gbV332Num(order.received) === gbV332Num(received);
+    });
+  }
+
+  function gbV332ProductCost(order){
+    if(!order) return 0;
+    if(order.productCost !== undefined) return gbV332Num(order.productCost);
+    if(order.costMode === "unit_price_times_qty_plus_freight"){
+      const unit = gbV332Num(order.unitCostOriginal ?? order.originalCost ?? order.productUnitCost ?? 0);
+      const qty = gbV332Num(order.qty);
+      const rate = gbV332Num(order.fxRate) || 1;
+      return Math.round(unit * qty * rate);
+    }
+    return 0;
+  }
+
+  function gbV332Freight(order){
+    if(!order) return 0;
+    if(order.freight !== undefined) return gbV332Num(order.freight);
+    const rate = gbV332Num(order.fxRate) || 1;
+    return Math.round(gbV332Num(order.originalFreight) * rate);
+  }
+
+  function gbV332CostDetail(order, fallbackTotalText){
+    if(!gbV332CanSeeCost()) return "";
+
+    if(!order){
+      return `<div class="gb-order-cost-detail"><div class="gb-order-cost-total">${gbV332Escape(fallbackTotalText || "")}</div></div>`;
+    }
+
+    const product = gbV332ProductCost(order);
+    const freight = gbV332Freight(order);
+    const total = order.cost !== undefined ? gbV332Num(order.cost) : product + freight;
+    const currency = order.currency || "TWD";
+    const unit = gbV332Num(order.unitCostOriginal ?? order.originalCost ?? order.productUnitCost ?? 0);
+    const qty = gbV332Num(order.qty);
+    const freightOriginal = gbV332Num(order.originalFreight ?? order.freight ?? 0);
+    const rate = gbV332Num(order.fxRate) || 1;
+
+    const originalLine = currency === "CNY"
+      ? `<div class="gb-order-cost-line">原幣 CNY ${unit} × ${qty} + 運 ${freightOriginal}｜匯率 ${rate.toFixed(3)}</div>`
+      : "";
+
+    return `
+      <div class="gb-order-cost-detail">
+        <div class="gb-order-cost-total">${gbV332Money(total)}</div>
+        <div class="gb-order-cost-line">商品 ${Math.round(product).toLocaleString("zh-TW")}｜運費 ${Math.round(freight).toLocaleString("zh-TW")}</div>
+        ${originalLine}
+      </div>
+    `;
+  }
+
+  function gbV332AlignOrderHistoryRows(){
+    const tables = [...document.querySelectorAll("table")];
+
+    tables.forEach(table=>{
+      const headers = [...table.querySelectorAll("thead th")].map(th => (th.textContent || "").trim());
+      const headerText = headers.join("|");
+      if(!(headerText.includes("日期") && headerText.includes("品項") && headerText.includes("來源") && headerText.includes("叫貨人") && headerText.includes("狀態"))) return;
+
+      const parentText = table.closest(".card,.panel,section,div")?.textContent || "";
+      if(!parentText.includes("叫貨紀錄")) return;
+
+      const rows = [...table.querySelectorAll("tbody tr")];
+      rows.forEach(row=>{
+        const cells = [...row.children];
+        if(cells.length < 9) return;
+
+        const date = cells[0]?.textContent.trim();
+        const itemName = cells[1]?.textContent.trim();
+        const qty = cells[2]?.textContent.trim();
+        const received = cells[3]?.textContent.trim();
+
+        const costText = cells[4]?.textContent.trim();
+        const sourceText = cells[5]?.textContent.trim();
+        const personText = cells[6]?.textContent.trim();
+        const statusCell = cells[7];
+        const actionCell = cells[8];
+
+        const order = gbV332FindOrderByRow(date, itemName, qty, received);
+        const source = order?.source || sourceText || "手動新增";
+
+        cells[4].innerHTML = `
+          <div class="gb-order-source-main">${gbV332Escape(source)}</div>
+          ${gbV332CostDetail(order, costText)}
+        `;
+        cells[5].textContent = order?.person || personText || "-";
+        cells[6].innerHTML = statusCell.innerHTML || gbV332Escape(order?.status || "");
+        cells[7].replaceChildren(...Array.from(actionCell.childNodes));
+        actionCell.remove();
+
+        // 補回修改 / 刪除按鈕事件，避免移動 DOM 後事件遺失
+        cells[7].querySelectorAll("button").forEach(btn=>{
+          const txt = (btn.textContent || "").trim();
+          const id = btn.dataset.id || order?.id || "";
+          if(txt.includes("修改") && id){
+            btn.onclick = () => {
+              if(typeof editOrder === "function") editOrder(id);
+              else if(typeof openEditOrderModal === "function") openEditOrderModal(id);
+            };
+          }
+          if(txt.includes("刪除") && id){
+            btn.onclick = () => {
+              if(typeof deleteOrder === "function") deleteOrder(id);
+            };
+          }
+        });
+      });
+    });
+  }
+
+  function gbV332ApplyCss(){
+    if(document.getElementById("gbV332OrderHistoryAlignCss")) return;
+
+    const style = document.createElement("style");
+    style.id = "gbV332OrderHistoryAlignCss";
+    style.textContent = `
+      .gb-order-source-main{
+        font-weight:900;
+        color:var(--text);
+        margin-bottom:4px;
+      }
+
+      .gb-order-cost-detail{
+        margin-top:4px;
+        line-height:1.45;
+        color:var(--muted);
+        font-size:13px;
+        font-weight:800;
+      }
+
+      .gb-order-cost-total{
+        color:var(--text);
+        font-size:16px;
+        font-weight:900;
+      }
+
+      .gb-order-cost-line{
+        color:var(--muted);
+        white-space:nowrap;
+      }
+
+      body:not(.gb-can-see-cost) .gb-order-cost-detail{
+        display:none !important;
+      }
+
+      @media(max-width:760px){
+        .gb-order-cost-line{
+          white-space:normal;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function gbV332ApplyRoleClass(){
+    document.body.classList.toggle("gb-can-see-cost", gbV332CanSeeCost());
+  }
+
+  function gbV332Run(){
+    gbV332ApplyCss();
+    gbV332ApplyRoleClass();
+    gbV332AlignOrderHistoryRows();
+  }
+
+  document.addEventListener("DOMContentLoaded",()=>{
+    setTimeout(gbV332Run,300);
+    setTimeout(gbV332Run,1000);
+  });
+
+  window.addEventListener("gb-role-ready",()=>{
+    setTimeout(gbV332Run,300);
+  });
+
+  const oldRenderAllV332 = renderAll;
+  renderAll = function(){
+    oldRenderAllV332();
+    gbV332Run();
+  };
+
+  window.gbOrderHistoryAlignCheck = function(){
+    const badRows = [...document.querySelectorAll("table tbody tr")].filter(row => row.children.length >= 9).length;
+    return {
+      version: window.GB_VERSION,
+      badRowsStillOverColumn: badRows,
+      costDetailCount: document.querySelectorAll(".gb-order-cost-detail").length,
+      sourceCells: document.querySelectorAll(".gb-order-source-main").length,
+      syncText: document.getElementById("syncStatusText")?.textContent
+    };
+  };
+})();
