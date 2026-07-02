@@ -8994,3 +8994,597 @@ window.GB_VERSION = "goldenbird-inventory-v3.0.1-firebase-duplicate-fix";
     };
   };
 })();
+
+/* GoldenBird Inventory v3.2.7｜成本報表與換算顯示修正 */
+(function(){
+  window.GB_VERSION = "goldenbird-inventory-v3.2.7-cost-report-fix";
+
+  function gbV327Num(value){
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function gbV327OrderQty(order){
+    return gbV327Num(order.qty);
+  }
+
+  function gbV327UnitCostOriginal(order){
+    if(order.unitCostOriginal !== undefined) return gbV327Num(order.unitCostOriginal);
+    if(order.originalCost !== undefined && order.costMode === "unit_price_times_qty_plus_freight") return gbV327Num(order.originalCost);
+    if(order.productUnitCost !== undefined) return gbV327Num(order.productUnitCost);
+    return 0;
+  }
+
+  function gbV327FreightOriginal(order){
+    if(order.originalFreight !== undefined) return gbV327Num(order.originalFreight);
+    if((order.currency || "TWD") === "TWD" && order.freight !== undefined) return gbV327Num(order.freight);
+    return 0;
+  }
+
+  function gbV327Rate(order){
+    return gbV327Num(order.fxRate) || 1;
+  }
+
+  function gbV327Currency(order){
+    return order.currency || "TWD";
+  }
+
+  function gbV327ProductSubtotalTwd(order){
+    // 新版資料：productCost = 單價 × 數量後的台幣商品小計
+    if(order.productCost !== undefined) return gbV327Num(order.productCost);
+
+    if(order.costMode === "unit_price_times_qty_plus_freight"){
+      const subtotalOriginal = gbV327UnitCostOriginal(order) * gbV327OrderQty(order);
+      return Math.round(subtotalOriginal * gbV327Rate(order));
+    }
+
+    // 舊資料無法確定 cost 是總價或單價，保守維持原 cost，避免自動放大舊紀錄
+    return gbV327Num(order.cost);
+  }
+
+  function gbV327FreightTwd(order){
+    if(order.freight !== undefined) return gbV327Num(order.freight);
+    return Math.round(gbV327FreightOriginal(order) * gbV327Rate(order));
+  }
+
+  function gbV327TotalCostTwd(order){
+    // 新版資料應該直接以 cost 為「台幣總成本」
+    if(order.costMode === "unit_price_times_qty_plus_freight"){
+      if(order.cost !== undefined) return gbV327Num(order.cost);
+      return gbV327ProductSubtotalTwd(order) + gbV327FreightTwd(order);
+    }
+
+    // 如果資料已有 originalProductSubtotal / originalTotal，代表可以安全重算
+    if(order.originalTotal !== undefined){
+      return Math.round(gbV327Num(order.originalTotal) * gbV327Rate(order));
+    }
+
+    // 舊資料保守使用既有 cost
+    return gbV327Num(order.cost);
+  }
+
+  function gbV327FormatMoney(value){
+    return `NT$ ${Math.round(gbV327Num(value)).toLocaleString("zh-TW")}`;
+  }
+
+  function gbV327PatchOrderCostFields(){
+    // 只補足新公式資料缺漏欄位，不重算舊資料
+    let changed = false;
+
+    (data.orders || []).forEach(order=>{
+      if(order.costMode !== "unit_price_times_qty_plus_freight") return;
+
+      const qty = gbV327OrderQty(order);
+      const unitOriginal = gbV327UnitCostOriginal(order);
+      const freightOriginal = gbV327FreightOriginal(order);
+      const rate = gbV327Rate(order);
+      const subtotalOriginal = unitOriginal * qty;
+      const totalOriginal = subtotalOriginal + freightOriginal;
+
+      const newProductCost = Math.round(subtotalOriginal * rate);
+      const newFreight = Math.round(freightOriginal * rate);
+      const newTotal = Math.round(totalOriginal * rate);
+
+      if(order.originalProductSubtotal !== subtotalOriginal){ order.originalProductSubtotal = subtotalOriginal; changed = true; }
+      if(order.originalTotal !== totalOriginal){ order.originalTotal = totalOriginal; changed = true; }
+      if(order.productCost !== newProductCost){ order.productCost = newProductCost; changed = true; }
+      if(order.freight !== newFreight){ order.freight = newFreight; changed = true; }
+      if(order.cost !== newTotal){ order.cost = newTotal; changed = true; }
+    });
+
+    if(changed && typeof saveData === "function") saveData();
+  }
+
+  function gbV327UpdatePreviewText(){
+    const preview = document.getElementById("manualOrderFxPreview");
+    if(!preview) return;
+
+    const qty = gbV327Num(document.getElementById("manualOrderQty")?.value);
+    const unit = gbV327Num(document.getElementById("manualOrderCost")?.value);
+    const freight = gbV327Num(document.getElementById("manualOrderFreight")?.value);
+    const currency = document.getElementById("manualOrderCurrency")?.value || "TWD";
+    const originalTotal = unit * qty + freight;
+
+    if(currency === "TWD"){
+      preview.value = `預估總成本：${gbV327FormatMoney(originalTotal)}（單價×數量＋運費）`;
+      return;
+    }
+
+    const rateText = localStorage.getItem("gb_cny_twd_rate_cache_v1");
+    let rate = 4.45;
+    try{
+      const cache = JSON.parse(rateText || "{}");
+      if(cache.rate) rate = Number(cache.rate);
+    }catch(error){}
+
+    preview.value = `預估總成本：NT$ ${Math.round(originalTotal * rate).toLocaleString("zh-TW")}（CNY ${originalTotal.toLocaleString("zh-TW")} × ${rate.toFixed(3)}）`;
+  }
+
+  function gbV327BindPreviewText(){
+    ["manualOrderQty","manualOrderCost","manualOrderFreight","manualOrderCurrency"].forEach(id=>{
+      const el = document.getElementById(id);
+      if(el && el.dataset.gbV327PreviewBound !== "true"){
+        el.addEventListener("input", gbV327UpdatePreviewText);
+        el.addEventListener("change", gbV327UpdatePreviewText);
+        el.dataset.gbV327PreviewBound = "true";
+      }
+    });
+    gbV327UpdatePreviewText();
+  }
+
+  function gbV327BuildCostRows(){
+    const items = data.items || [];
+    const orders = data.orders || [];
+
+    return items.map(item => {
+      const related = orders.filter(order => order.itemId === item.id);
+      const productTotal = related.reduce((sum, order) => sum + gbV327ProductSubtotalTwd(order), 0);
+      const freightTotal = related.reduce((sum, order) => sum + gbV327FreightTwd(order), 0);
+      const totalCost = related.reduce((sum, order) => sum + gbV327TotalCostTwd(order), 0);
+      const totalQty = related.reduce((sum, order) => sum + gbV327OrderQty(order), 0);
+
+      return {
+        item,
+        productTotal,
+        freightTotal,
+        totalCost,
+        totalQty,
+        avgUnitCost: totalQty ? Math.round((totalCost / totalQty) * 100) / 100 : 0
+      };
+    });
+  }
+
+  function gbV327PatchCostReportDisplay(){
+    // 如果原本 renderCostReport 還會畫表格，先讓它跑；再修正其中明顯使用 cost 的數值較難。
+    // 因各版 DOM 不完全一致，提供總計卡與診斷函式，並覆蓋 Excel rows 的成本資料。
+    const rows = gbV327BuildCostRows();
+    const total = rows.reduce((sum, row) => sum + row.totalCost, 0);
+    const product = rows.reduce((sum, row) => sum + row.productTotal, 0);
+    const freight = rows.reduce((sum, row) => sum + row.freightTotal, 0);
+
+    let box = document.getElementById("gbV327CostSummary");
+    const admin = document.getElementById("admin");
+    if(!admin) return;
+
+    const costHeading = [...admin.querySelectorAll("h2,h3,.section-title,.card-title")]
+      .find(el => (el.textContent || "").includes("成本"));
+    const anchor = costHeading?.closest(".card,.panel,section") || costHeading;
+
+    if(!box){
+      box = document.createElement("div");
+      box.id = "gbV327CostSummary";
+      box.className = "gb-cost-summary-v327";
+      if(anchor){
+        anchor.insertAdjacentElement("afterend", box);
+      }
+    }
+
+    box.innerHTML = `
+      <div class="gb-cost-pill"><span>商品小計</span><strong>${gbV327FormatMoney(product)}</strong></div>
+      <div class="gb-cost-pill"><span>運費</span><strong>${gbV327FormatMoney(freight)}</strong></div>
+      <div class="gb-cost-pill main"><span>叫貨總成本</span><strong>${gbV327FormatMoney(total)}</strong></div>
+    `;
+  }
+
+  function gbV327ApplyCss(){
+    if(document.getElementById("gbV327CostCss")) return;
+    const style = document.createElement("style");
+    style.id = "gbV327CostCss";
+    style.textContent = `
+      .gb-cost-summary-v327{
+        display:grid;
+        grid-template-columns:repeat(3,1fr);
+        gap:12px;
+        margin:14px 0 18px;
+      }
+      .gb-cost-pill{
+        border:1px solid var(--line);
+        border-radius:18px;
+        padding:14px 16px;
+        background:#fff;
+      }
+      .gb-cost-pill span{
+        display:block;
+        color:var(--muted);
+        font-weight:800;
+        font-size:13px;
+        margin-bottom:6px;
+      }
+      .gb-cost-pill strong{
+        display:block;
+        color:var(--text);
+        font-weight:900;
+        font-size:22px;
+      }
+      .gb-cost-pill.main{
+        background:#f1f8f6;
+        border-color:#cfe4de;
+      }
+      @media(max-width:760px){
+        .gb-cost-summary-v327{
+          grid-template-columns:1fr;
+          gap:8px;
+        }
+        .gb-cost-pill{
+          padding:12px 14px;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  // 覆蓋 buildExcelRows 的成本計算，避免 Excel / 成本匯出也沿用舊公式
+  if(typeof buildExcelRows === "function"){
+    const oldBuildExcelRowsV327 = buildExcelRows;
+    buildExcelRows = function(){
+      const sheets = oldBuildExcelRowsV327();
+
+      const costRows = gbV327BuildCostRows().map(row => ({
+        "品項ID": row.item.id,
+        "品項名稱": row.item.name,
+        "分類": row.item.category || "",
+        "商品成本合計": Math.round(row.productTotal),
+        "運費合計": Math.round(row.freightTotal),
+        "進貨成本合計": Math.round(row.totalCost),
+        "累計數量": row.totalQty,
+        "平均單位成本": row.totalQty ? row.avgUnitCost : ""
+      }));
+
+      const transitRows = (data.orders || []).map(order => {
+        const item = typeof getItem === "function" ? getItem(order.itemId) : (data.items || []).find(i => i.id === order.itemId);
+        return {
+          "叫貨ID": order.id || "",
+          "叫貨日期": order.date || "",
+          "品項ID": order.itemId || "",
+          "品項名稱": item?.name || order.itemName || order.deletedItemName || "",
+          "分類": item?.category || "",
+          "叫貨數量": gbV327OrderQty(order),
+          "已到貨": gbV327Num(order.received),
+          "剩餘在途": Math.max(0, gbV327OrderQty(order) - gbV327Num(order.received)),
+          "商品單價": gbV327UnitCostOriginal(order),
+          "商品小計": Math.round(gbV327ProductSubtotalTwd(order)),
+          "運費": Math.round(gbV327FreightTwd(order)),
+          "台幣合計": Math.round(gbV327TotalCostTwd(order)),
+          "原始幣別": gbV327Currency(order),
+          "原始商品小計": order.originalProductSubtotal ?? "",
+          "原始運費": order.originalFreight ?? "",
+          "原始總額": order.originalTotal ?? "",
+          "匯率": order.fxRate || 1,
+          "來源": order.source || "",
+          "叫貨人": order.person || "",
+          "狀態": order.status || "",
+          "備註": order.note || ""
+        };
+      });
+
+      sheets["成本"] = costRows;
+      sheets["在途商品"] = transitRows;
+      return sheets;
+    };
+    window.buildExcelRows = buildExcelRows;
+  }
+
+  const oldRenderAllV327 = renderAll;
+  renderAll = function(){
+    gbV327PatchOrderCostFields();
+    oldRenderAllV327();
+    gbV327ApplyCss();
+    gbV327BindPreviewText();
+    gbV327PatchCostReportDisplay();
+  };
+
+  document.addEventListener("DOMContentLoaded",()=>{
+    setTimeout(()=>{
+      gbV327PatchOrderCostFields();
+      gbV327ApplyCss();
+      gbV327BindPreviewText();
+      gbV327PatchCostReportDisplay();
+    },500);
+  });
+
+  window.gbCostReportCheck = function(){
+    const rows = gbV327BuildCostRows();
+    return {
+      version: window.GB_VERSION,
+      formula: "商品單價 × 叫貨數量 + 運費 = 叫貨總成本",
+      orderCount: (data.orders || []).length,
+      totalProductCost: Math.round(rows.reduce((sum,row)=>sum+row.productTotal,0)),
+      totalFreight: Math.round(rows.reduce((sum,row)=>sum+row.freightTotal,0)),
+      totalCost: Math.round(rows.reduce((sum,row)=>sum+row.totalCost,0)),
+      newestOrders: (data.orders || []).slice(0,5).map(order=>({
+        itemId: order.itemId,
+        qty: order.qty,
+        unit: order.unitCostOriginal ?? order.originalCost ?? order.productUnitCost ?? "",
+        productCost: order.productCost,
+        freight: order.freight,
+        cost: order.cost,
+        costMode: order.costMode || ""
+      }))
+    };
+  };
+})();
+
+/* GoldenBird Inventory v3.2.8｜修改叫貨紀錄即時計算修正 */
+(function(){
+  window.GB_VERSION = "goldenbird-inventory-v3.2.8-edit-order-cost-live-fix";
+
+  function gbV328Num(value){
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function gbV328GetEditOrder(){
+    const idCandidates = ["editOrderId","orderEditId","manualOrderEditId","editingOrderId"];
+    let id = "";
+    for(const key of idCandidates){
+      const el = document.getElementById(key);
+      if(el?.value){ id = el.value; break; }
+    }
+    id = id || window.editingOrderId || window.currentEditOrderId || "";
+    return (data.orders || []).find(order => order.id === id) || null;
+  }
+
+  function gbV328GetFirstInput(ids){
+    for(const id of ids){
+      const el = document.getElementById(id);
+      if(el) return el;
+    }
+    return null;
+  }
+
+  function gbV328Value(ids, fallback=""){
+    const el = gbV328GetFirstInput(ids);
+    if(!el) return fallback;
+    return el.value === "" ? fallback : el.value;
+  }
+
+  function gbV328Number(ids, fallback=0){
+    return gbV328Num(gbV328Value(ids, fallback));
+  }
+
+  function gbV328Rate(order, currency){
+    if(currency === "CNY") return gbV328Num(gbV328Value(["editOrderFxRate","orderEditFxRate"], order?.fxRate || 4.45)) || 4.45;
+    return 1;
+  }
+
+  function gbV328Currency(order){
+    return gbV328Value(["editOrderCurrency","orderEditCurrency"], order?.currency || "TWD") || "TWD";
+  }
+
+  function gbV328Qty(order){
+    return gbV328Number(["editOrderQty","orderEditQty"], order?.qty || 0);
+  }
+
+  function gbV328Unit(order){
+    return gbV328Number(
+      ["editOrderCost","orderEditCost","editOrderUnitCost","orderEditUnitCost"],
+      order?.unitCostOriginal ?? order?.originalCost ?? order?.productUnitCost ?? 0
+    );
+  }
+
+  function gbV328Freight(order){
+    return gbV328Number(
+      ["editOrderFreight","orderEditFreight"],
+      order?.originalFreight ?? order?.freight ?? 0
+    );
+  }
+
+  function gbV328Calc(order){
+    const qty = gbV328Qty(order);
+    const unit = gbV328Unit(order);
+    const freight = gbV328Freight(order);
+    const currency = gbV328Currency(order);
+    const rate = gbV328Rate(order, currency);
+    const productSubtotalOriginal = unit * qty;
+    const originalTotal = productSubtotalOriginal + freight;
+
+    return {
+      qty,
+      unit,
+      freight,
+      currency,
+      rate,
+      productSubtotalOriginal,
+      originalTotal,
+      productUnitCostTwd: Math.round(unit * rate),
+      productCostTwd: Math.round(productSubtotalOriginal * rate),
+      freightTwd: Math.round(freight * rate),
+      totalTwd: Math.round(originalTotal * rate)
+    };
+  }
+
+  function gbV328FormatMoney(value){
+    return `NT$ ${Math.round(gbV328Num(value)).toLocaleString("zh-TW")}`;
+  }
+
+  function gbV328EnsurePreview(order){
+    let preview = document.getElementById("editOrderCostPreview") || document.getElementById("orderEditCostPreview");
+    if(preview) return preview;
+
+    const modal = document.getElementById("editOrderModal") || document.getElementById("orderEditModal") || document.querySelector(".modal.show,.modal.active,.modal.open");
+    const anchor = gbV328GetFirstInput(["editOrderFreight","orderEditFreight","editOrderCost","orderEditCost","editOrderQty","orderEditQty"]);
+    if(!modal || !anchor) return null;
+
+    preview = document.createElement("div");
+    preview.id = "editOrderCostPreview";
+    preview.className = "gb-edit-order-cost-preview";
+    anchor.closest(".field")?.insertAdjacentElement("afterend", preview);
+    return preview;
+  }
+
+  function gbV328UpdateEditOrderPreview(){
+    const order = gbV328GetEditOrder();
+    if(!order) return;
+
+    const preview = gbV328EnsurePreview(order);
+    if(!preview) return;
+
+    const calc = gbV328Calc(order);
+
+    if(calc.currency === "CNY"){
+      preview.textContent = `預估總成本：${gbV328FormatMoney(calc.totalTwd)}（CNY ${calc.unit} × ${calc.qty} + 運 ${calc.freight}，匯率 ${calc.rate}）`;
+    }else{
+      preview.textContent = `預估總成本：${gbV328FormatMoney(calc.totalTwd)}（單價 ${calc.unit} × 數量 ${calc.qty} + 運費 ${calc.freight}）`;
+    }
+  }
+
+  function gbV328SaveEditOrderCost(){
+    const order = gbV328GetEditOrder();
+    if(!order) return false;
+
+    const hasCostInputs = ["editOrderCost","orderEditCost","editOrderUnitCost","orderEditUnitCost","editOrderFreight","orderEditFreight","editOrderQty","orderEditQty"]
+      .some(id => document.getElementById(id));
+
+    if(!hasCostInputs) return false;
+
+    const calc = gbV328Calc(order);
+
+    order.qty = calc.qty;
+    order.currency = calc.currency;
+    order.fxRate = calc.rate;
+    order.unitCostOriginal = calc.unit;
+    order.originalCost = calc.unit;
+    order.originalProductSubtotal = calc.productSubtotalOriginal;
+    order.originalFreight = calc.freight;
+    order.originalTotal = calc.originalTotal;
+    order.productUnitCost = calc.productUnitCostTwd;
+    order.productCost = calc.productCostTwd;
+    order.freight = calc.freightTwd;
+    order.cost = calc.totalTwd;
+    order.costMode = "unit_price_times_qty_plus_freight";
+    order.updatedAt = Date.now();
+
+    return true;
+  }
+
+  function gbV328BindEditOrderCostInputs(){
+    const ids = [
+      "editOrderQty","orderEditQty",
+      "editOrderCost","orderEditCost","editOrderUnitCost","orderEditUnitCost",
+      "editOrderFreight","orderEditFreight",
+      "editOrderCurrency","orderEditCurrency",
+      "editOrderFxRate","orderEditFxRate"
+    ];
+
+    ids.forEach(id=>{
+      const el = document.getElementById(id);
+      if(el && el.dataset.gbV328CostLiveBound !== "true"){
+        el.addEventListener("input", gbV328UpdateEditOrderPreview);
+        el.addEventListener("change", gbV328UpdateEditOrderPreview);
+        el.dataset.gbV328CostLiveBound = "true";
+      }
+    });
+
+    const label = document.querySelector('label[for="editOrderCost"], label[for="orderEditCost"], label[for="editOrderUnitCost"], label[for="orderEditUnitCost"]');
+    if(label && label.textContent.includes("成本")){
+      label.textContent = "商品單價";
+    }
+
+    ["editOrderCost","orderEditCost","editOrderUnitCost","orderEditUnitCost"].forEach(id=>{
+      const el = document.getElementById(id);
+      if(el){
+        el.placeholder = "例如：4.5";
+        el.title = "請輸入單價，系統會自動乘上叫貨數量";
+      }
+    });
+
+    gbV328UpdateEditOrderPreview();
+  }
+
+  // 在原本 saveEditOrder 前先套用新版成本公式
+  if(typeof window.saveEditOrder === "function" && !window.__gbV328WrappedSaveEditOrder){
+    const oldSaveEditOrderV328 = window.saveEditOrder;
+    window.saveEditOrder = async function(){
+      gbV328SaveEditOrderCost();
+      return oldSaveEditOrderV328.apply(this, arguments);
+    };
+    try{ saveEditOrder = window.saveEditOrder; }catch(error){}
+    window.__gbV328WrappedSaveEditOrder = true;
+  }
+
+  // 事件委派：按儲存時，先更新成本欄位，再讓原本儲存流程處理其他欄位
+  if(!window.__gbV328EditOrderCostDelegationBound){
+    window.__gbV328EditOrderCostDelegationBound = true;
+    document.addEventListener("click", function(event){
+      const target = event.target;
+      if(!target) return;
+
+      const id = target.id || "";
+      const text = (target.textContent || "").trim();
+      const modal = target.closest?.(".modal");
+      const modalText = modal?.textContent || "";
+
+      const isSaveBtn = ["saveEditOrderBtn","orderEditSaveBtn","saveOrderEditBtn"].includes(id) || 
+        ((modalText.includes("修改叫貨") || modalText.includes("叫貨紀錄")) && text === "儲存");
+
+      if(isSaveBtn){
+        gbV328SaveEditOrderCost();
+      }
+    }, true);
+  }
+
+  function gbV328ApplyCss(){
+    if(document.getElementById("gbV328EditOrderCostCss")) return;
+    const style = document.createElement("style");
+    style.id = "gbV328EditOrderCostCss";
+    style.textContent = `
+      .gb-edit-order-cost-preview{
+        margin:8px 0 0;
+        padding:10px 12px;
+        border-radius:14px;
+        background:#f8f4e8;
+        color:var(--muted);
+        font-weight:800;
+        font-size:14px;
+        line-height:1.45;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  document.addEventListener("DOMContentLoaded",()=>{
+    gbV328ApplyCss();
+    setTimeout(gbV328BindEditOrderCostInputs, 300);
+    setTimeout(gbV328BindEditOrderCostInputs, 1000);
+  });
+
+  const oldRenderAllV328 = renderAll;
+  renderAll = function(){
+    oldRenderAllV328();
+    gbV328ApplyCss();
+    gbV328BindEditOrderCostInputs();
+  };
+
+  window.gbEditOrderCostLiveCheck = function(){
+    const order = gbV328GetEditOrder();
+    return {
+      version: window.GB_VERSION,
+      hasOrder: !!order,
+      formula: "商品單價 × 叫貨數量 + 運費 = 叫貨總成本",
+      currentCalc: order ? gbV328Calc(order) : null,
+      hasPreview: !!document.getElementById("editOrderCostPreview"),
+      saveWrapped: !!window.__gbV328WrappedSaveEditOrder,
+      syncText: document.getElementById("syncStatusText")?.textContent
+    };
+  };
+})();
