@@ -1,5 +1,5 @@
 /*
-  金雀庫存管理系統 v13｜Firebase Auth + Firestore 設定
+  金雀庫存管理系統 v14｜Firebase Auth + Firestore 同步啟動修正版
   本版不使用 Firebase Storage，可在 Spark 免費方案下運作。
 */
 
@@ -50,6 +50,45 @@ function initFirebaseIfReady() {
   return true;
 }
 
+function updateAuthSyncStatus(text, type = "") {
+  const el = document.getElementById("syncStatusText");
+  if (!el) return;
+  el.textContent = text;
+  el.classList.remove("ok", "warn", "bad");
+  if (type) el.classList.add(type);
+}
+
+function startInventorySyncAfterLogin() {
+  updateAuthSyncStatus("同步連線中…", "warn");
+
+  let tries = 0;
+  const timer = setInterval(() => {
+    tries += 1;
+
+    if (typeof startRemoteSync === "function" && window.GB_FIREBASE.ready && window.GB_AUTH.ready && window.GB_AUTH.user) {
+      clearInterval(timer);
+      try {
+        startRemoteSync();
+      } catch (error) {
+        console.error("startRemoteSync failed:", error);
+        updateAuthSyncStatus("同步啟動失敗", "bad");
+      }
+      return;
+    }
+
+    if (tries >= 20) {
+      clearInterval(timer);
+      updateAuthSyncStatus("同步未啟動", "bad");
+      console.warn("startRemoteSync not found or auth/firebase not ready", {
+        hasStartRemoteSync: typeof startRemoteSync === "function",
+        firebaseReady: !!window.GB_FIREBASE.ready,
+        authReady: !!window.GB_AUTH.ready,
+        user: window.GB_AUTH.user
+      });
+    }
+  }, 250);
+}
+
 function applyRoleToUI(role, userText) {
   window.GB_AUTH.role = role || "staff";
   window.GB_AUTH.ready = true;
@@ -74,17 +113,27 @@ function applyRoleToUI(role, userText) {
   window.dispatchEvent(new CustomEvent("gb-role-ready", {
     detail: { role: window.GB_AUTH.role, user: window.GB_AUTH.user }
   }));
+
+  startInventorySyncAfterLogin();
+
+  if (typeof renderAll === "function") {
+    try { renderAll(); } catch (error) { console.warn("renderAll after login failed:", error); }
+  }
 }
 
 function showLoggedOut(message) {
   const authPanel = document.getElementById("authPanel");
   const authMessage = document.getElementById("authMessage");
 
+  window.GB_AUTH.ready = false;
+  window.GB_AUTH.user = null;
+
   document.body.classList.add("is-logged-out");
   document.body.classList.remove("is-logged-in");
 
   if (authPanel) authPanel.classList.remove("hidden");
   if (authMessage && message) authMessage.textContent = message;
+  updateAuthSyncStatus("尚未同步", "warn");
 }
 
 async function loginWithGoogle() {
@@ -136,7 +185,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   window.GB_FIREBASE.auth.onAuthStateChanged(user => {
     if (!user) {
-      window.GB_AUTH.user = null;
       showLoggedOut("請使用公司授權的 Google 帳號登入。");
       return;
     }
