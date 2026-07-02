@@ -6645,3 +6645,119 @@ window.GB_VERSION = "goldenbird-inventory-v3.0.1-firebase-duplicate-fix";
     }, 300);
   });
 })();
+
+/* GoldenBird Inventory v3.0.7｜介面細節微調 */
+(function(){
+  function applyV307UiPolish(){
+    if(document.getElementById("gbV307UiCss")) return;
+
+    const style = document.createElement("style");
+    style.id = "gbV307UiCss";
+    style.textContent = `
+      /* 1. 選取中的標籤文字可讀性 */
+      .tab.active,
+      .admin-sub-tab.active{
+        background:var(--main) !important;
+        color:#ffffff !important;
+        font-weight:900 !important;
+        text-shadow:0 1px 1px rgba(0,0,0,.18);
+      }
+
+      .tab.active *,
+      .admin-sub-tab.active *{
+        color:#ffffff !important;
+      }
+
+      /* 3. 最近新增 / 最近更新提示改淡，不像警示 */
+      .highlight-row,
+      .inventory-row.highlight-row,
+      .inventory-card.highlight-row{
+        border-left:4px solid #ead9a8 !important;
+        box-shadow:inset 4px 0 0 #ead9a8, 0 2px 10px rgba(0,0,0,.03) !important;
+      }
+
+      /* 2. 手機版在途商品改卡片式，避免底部出現很寬的橫向捲軸 */
+      @media(max-width:760px){
+        #incoming .table-scroll{
+          overflow-x:visible !important;
+        }
+
+        #incoming table{
+          min-width:0 !important;
+          width:100% !important;
+          border-collapse:separate !important;
+          border-spacing:0 12px !important;
+        }
+
+        #incoming table thead{
+          display:none !important;
+        }
+
+        #incomingTable tr{
+          display:block !important;
+          background:#fff !important;
+          border:1px solid var(--line) !important;
+          border-radius:18px !important;
+          padding:12px !important;
+          box-shadow:0 4px 14px rgba(0,0,0,.04);
+          margin-bottom:12px !important;
+        }
+
+        #incomingTable td{
+          display:grid !important;
+          grid-template-columns:88px 1fr !important;
+          gap:8px !important;
+          padding:7px 0 !important;
+          border:0 !important;
+          white-space:normal !important;
+          align-items:center !important;
+        }
+
+        #incomingTable td::before{
+          color:var(--muted);
+          font-weight:800;
+          font-size:13px;
+        }
+
+        #incomingTable td:nth-child(1)::before{ content:"叫貨日期"; }
+        #incomingTable td:nth-child(2)::before{ content:"品項"; }
+        #incomingTable td:nth-child(3)::before{ content:"叫貨數量"; }
+        #incomingTable td:nth-child(4)::before{ content:"已到貨"; }
+        #incomingTable td:nth-child(5)::before{ content:"剩餘在途"; }
+        #incomingTable td:nth-child(6)::before{ content:"叫貨人"; }
+        #incomingTable td:nth-child(7)::before{ content:"狀態"; }
+        #incomingTable td:nth-child(8)::before{ content:"本次到貨"; }
+        #incomingTable td:nth-child(9)::before{ content:"操作"; }
+
+        #incomingTable .receive-input{
+          width:100% !important;
+          min-width:0 !important;
+        }
+
+        #incomingTable .receive-btn{
+          width:100% !important;
+          min-width:0 !important;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  document.addEventListener("DOMContentLoaded", applyV307UiPolish);
+
+  const oldRenderAllV307 = renderAll;
+  renderAll = function(){
+    oldRenderAllV307();
+    applyV307UiPolish();
+  };
+
+  window.gbUiPolishCheck = function(){
+    return {
+      version: window.GB_VERSION,
+      hasV307Css: !!document.getElementById("gbV307UiCss"),
+      mobile: window.innerWidth <= 760,
+      incomingRows: document.querySelectorAll("#incomingTable tr").length,
+      activeTabs: [...document.querySelectorAll(".tab.active,.admin-sub-tab.active")].map(el => el.textContent.trim())
+    };
+  };
+})();
