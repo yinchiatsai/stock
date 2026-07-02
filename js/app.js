@@ -3153,29 +3153,139 @@ window.gbDiagnostic = function() {
 };
 
 
-/* GoldenBird Inventory v2.0.3a｜回復版修正 */
-window.GB_VERSION = "goldenbird-inventory-v2.0.3a-restore-fixes";
+/* GoldenBird Inventory v2.2 Stable｜正式整合穩定版 */
+window.GB_VERSION = "goldenbird-inventory-v2.2-stable";
 
 function gbRole() {
-  return String(window.GB_AUTH?.role || document.getElementById("roleSelect")?.value || "").toLowerCase();
+  return String(window.GB_AUTH?.role || document.getElementById("roleSelect")?.value || "staff").toLowerCase();
 }
 
 function gbIsAdmin() {
   return ["boss", "qing", "emily"].includes(gbRole());
 }
 
-function gbCanAudit() {
-  return true;
+function gbSafeRender(fn, name) {
+  try {
+    if (typeof fn === "function") fn();
+  } catch (error) {
+    console.warn(`${name} failed`, error);
+  }
 }
 
-/* 修正：後台品項管理一定讀取 data.items */
+/* ---------- Firestore 同步：覆蓋舊版 startRemoteSync，避免卡在同步連線中 ---------- */
+function startRemoteSync() {
+  const ref = getMainDocRef();
+  if (!ref) {
+    updateSyncStatus("未連線", "warn");
+    return;
+  }
+
+  if (gbUnsubscribeMainDoc) {
+    try { gbUnsubscribeMainDoc(); } catch (error) { console.warn(error); }
+  }
+
+  updateSyncStatus("同步連線中…", "warn");
+
+  const applyRemoteSnapshot = snapshot => {
+    if (!snapshot.exists) {
+      return null;
+    }
+
+    const remoteData = normalizeRemoteData(snapshot.data());
+    if (!remoteData) return null;
+
+    gbIsApplyingRemote = true;
+    data = remoteData;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    gbRemoteReady = true;
+    gbIsApplyingRemote = false;
+
+    updateSyncStatus("已同步", "ok");
+    renderAll();
+    return remoteData;
+  };
+
+  ref.get()
+    .then(snapshot => {
+      if (!snapshot.exists) {
+        return ref.set({
+          payload: data,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          updatedBy: window.GB_AUTH?.user?.email || "unknown",
+          version: window.GB_VERSION || "v2.2"
+        }).then(() => {
+          gbRemoteReady = true;
+          updateSyncStatus("已同步", "ok");
+        });
+      }
+
+      applyRemoteSnapshot(snapshot);
+      return null;
+    })
+    .then(() => {
+      gbUnsubscribeMainDoc = ref.onSnapshot(snapshot => {
+        if (!snapshot.exists) return;
+        applyRemoteSnapshot(snapshot);
+      }, error => {
+        console.error("Firestore sync error:", error);
+        updateSyncStatus("同步失敗", "bad");
+      });
+    })
+    .catch(error => {
+      console.error("Firestore initial sync error:", error);
+      updateSyncStatus("同步失敗", "bad");
+    });
+}
+
+/* ---------- 基礎資料清理 ---------- */
+function ensureDataShape() {
+  data.items = Array.isArray(data.items) ? data.items : [];
+  data.orders = Array.isArray(data.orders) ? data.orders : [];
+  data.history = Array.isArray(data.history) ? data.history : [];
+  data.mappings = Array.isArray(data.mappings) ? data.mappings : [];
+}
+
+/* ---------- 權限 ---------- */
+function renderAdmin() {
+  const canManage = gbIsAdmin();
+
+  const locked = document.getElementById("adminLocked");
+  const content = document.getElementById("adminContent");
+
+  if (locked) locked.classList.toggle("hidden", canManage);
+  if (content) content.classList.toggle("hidden", !canManage);
+
+  if (!canManage) return;
+
+  gbSafeRender(renderAdminOrders, "renderAdminOrders");
+  gbSafeRender(renderCostReport, "renderCostReport");
+  gbSafeRender(renderItemManageTable, "renderItemManageTable");
+}
+
+/* ---------- 品項管理：固定讀 data.items ---------- */
+function refreshItemCategoryFilterOptions() {
+  const select = document.getElementById("itemManageCategoryFilter");
+  if (!select) return;
+
+  const categories = [...new Set((data.items || []).map(item => item.category).filter(Boolean))].sort();
+  const currentValue = itemManageCategoryValue || "all";
+
+  select.innerHTML = `<option value="all">全部分類</option>` + categories
+    .map(category => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`)
+    .join("");
+
+  select.value = categories.includes(currentValue) ? currentValue : "all";
+  itemManageCategoryValue = select.value;
+}
+
 function renderItemManageTable() {
   refreshItemCategoryFilterOptions();
 
-  const keyword = document.getElementById("itemManageSearch")?.value.trim() || "";
-  itemManageCategoryValue = document.getElementById("itemManageCategoryFilter")?.value || itemManageCategoryValue || "all";
   const tbody = document.getElementById("itemManageTable");
   if (!tbody) return;
+
+  const keyword = document.getElementById("itemManageSearch")?.value.trim() || "";
+  itemManageCategoryValue = document.getElementById("itemManageCategoryFilter")?.value || itemManageCategoryValue || "all";
 
   const rows = (data.items || [])
     .filter(item => itemManageCategoryValue === "all" || item.category === itemManageCategoryValue)
@@ -3197,99 +3307,97 @@ function renderItemManageTable() {
   tbody.innerHTML = rows || `<tr><td colspan="5">找不到符合的品項</td></tr>`;
 
   document.querySelectorAll(".edit-item-btn").forEach(button => {
-    button.addEventListener("click", () => editItem(button.dataset.id));
+    button.onclick = () => editItem(button.dataset.id);
   });
   document.querySelectorAll(".toggle-item-btn").forEach(button => {
-    button.addEventListener("click", () => toggleItemDisabled(button.dataset.id));
+    button.onclick = () => toggleItemDisabled(button.dataset.id);
   });
   document.querySelectorAll(".delete-item-btn").forEach(button => {
-    button.addEventListener("click", () => openDeleteItem(button.dataset.id));
+    button.onclick = () => openDeleteItem(button.dataset.id);
   });
 }
 
-/* 修正：分類篩選同步所有目前品項分類 */
-function refreshItemCategoryFilterOptions() {
-  const select = document.getElementById("itemManageCategoryFilter");
-  if (!select) return;
-
-  const categories = [...new Set((data.items || []).map(item => item.category).filter(Boolean))].sort();
-  const currentValue = itemManageCategoryValue || "all";
-  select.innerHTML = `<option value="all">全部分類</option>` + categories.map(category =>
-    `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`
-  ).join("");
-
-  select.value = categories.includes(currentValue) ? currentValue : "all";
-  itemManageCategoryValue = select.value;
-}
-
-/* 修正：若已登入且 Firebase 有啟動，同步狀態不要卡在尚未同步 */
-function gbFixSyncStatusText() {
-  const text = document.getElementById("syncStatusText");
-  if (!text) return;
-
-  const current = (text.textContent || "").trim();
-  if (current === "尚未同步" && window.GB_FIREBASE?.ready && window.GB_AUTH?.ready) {
-    updateSyncStatus("同步連線中…", "warn");
-    if (typeof startRemoteSync === "function") {
-      try { startRemoteSync(); } catch (error) { console.warn(error); }
-    }
-  }
-}
-
-/* 快速盤點：庫存＋安全庫存一起可改 */
-function openQuickStockModal(itemId) {
-  const item = getItem(itemId);
-  if (!item) return;
-
-  document.getElementById("quickStockItemId").value = item.id;
-  document.getElementById("quickStockItemText").textContent = item.name;
-  document.getElementById("quickStockOldQty").value = item.stock;
-  document.getElementById("quickStockNewQty").value = item.stock;
-
-  const safetyInput = document.getElementById("quickStockSafetyQty");
-  if (safetyInput) safetyInput.value = Number(item.safety) || 0;
-
-  const reason = document.getElementById("quickStockReason");
-  if (reason) reason.value = "盤點更新";
-
-  openModal("quickStockModal");
-}
-
-function confirmQuickStockUpdate() {
-  const item = getItem(document.getElementById("quickStockItemId")?.value);
-  const newQty = Number(document.getElementById("quickStockNewQty")?.value);
-  const newSafety = Number(document.getElementById("quickStockSafetyQty")?.value);
-  const reason = document.getElementById("quickStockReason")?.value || "盤點更新";
-
-  if (!item || Number.isNaN(newQty) || newQty < 0) {
-    showToast("請輸入正確庫存數量");
+/* ---------- 新增品項：初始庫存、安全庫存，避免完全重名 ---------- */
+function createNewItem({ name, category, safety, dept, note, shared, stock }) {
+  if (!name) {
+    showToast("請輸入品項名稱");
     return;
   }
 
-  if (Number.isNaN(newSafety) || newSafety < 0) {
-    showToast("請輸入正確安全庫存");
+  const normalized = String(name).trim().toLowerCase().replace(/\s+/g, "");
+  const duplicated = (data.items || []).find(item => !item.disabled && String(item.name || "").trim().toLowerCase().replace(/\s+/g, "") === normalized);
+  if (duplicated) {
+    showToast(`已存在相同品項：${duplicated.name}`);
     return;
   }
 
-  const oldStock = Number(item.stock) || 0;
-  const oldSafety = Number(item.safety) || 0;
+  const initialStock = Number(stock) || 0;
+  const newItem = {
+    id: `I${Date.now()}`,
+    name,
+    category,
+    stock: initialStock,
+    safety: Number(safety) || 0,
+    dept: dept || category,
+    mode: shared ? "共用型" : "觀察型",
+    note: note || "",
+    disabled: false,
+    createdAt: Date.now(),
+    lastUpdatedBy: getCurrentUserLabel(),
+    lastUpdatedEmail: getCurrentUserEmail(),
+    lastUpdatedAt: Date.now(),
+    lastUpdateType: "新增品項"
+  };
 
-  item.stock = newQty;
-  item.safety = newSafety;
+  data.items.push(newItem);
+  lastCreatedItemId = newItem.id;
 
-  if (oldStock !== newQty || oldSafety !== newSafety) {
-    const note = oldSafety !== newSafety ? `安全庫存 ${oldSafety} → ${newSafety}` : "";
-    addStockHistory(item, oldStock, newQty, reason, note);
-    lastUpdatedItemId = item.id;
+  if (initialStock > 0) {
+    addStockHistory(newItem, 0, initialStock, "新增品項", "初始庫存");
   }
 
   saveData();
-  closeModal("quickStockModal");
   renderAll();
-  showToast(`${item.name} 已更新`);
+  showToast("新品項已新增");
 }
 
-/* 在途商品：不顯示成本，確認到貨前跳確認 */
+function addNewItemFromManage() {
+  const name = document.getElementById("newItemNameManage")?.value.trim() || "";
+  const categoryInput = document.getElementById("newCategoryInput")?.value.trim() || "";
+  const categorySelect = document.getElementById("newItemCategoryManage");
+  const category = categoryInput || categorySelect?.value || "未分類";
+  const safety = Number(document.getElementById("newItemSafetyManage")?.value) || 0;
+  const stock = Number(document.getElementById("newItemStockManage")?.value) || 0;
+  const dept = document.getElementById("newItemDeptManage")?.value.trim() || category;
+  const note = document.getElementById("newItemNoteManage")?.value.trim() || "";
+  const shared = document.getElementById("newItemSharedManage")?.checked || false;
+
+  if (categoryInput && categorySelect && ![...categorySelect.options].some(option => option.value === categoryInput)) {
+    categorySelect.appendChild(new Option(categoryInput, categoryInput));
+    categorySelect.value = categoryInput;
+  }
+
+  createNewItem({ name, category, safety, dept, note, shared, stock });
+
+  const keepCategory = categorySelect?.value || "";
+  const keepDept = dept;
+  const keepShared = shared;
+
+  ["newItemNameManage", "newItemSafetyManage", "newItemStockManage", "newItemNoteManage", "newCategoryInput"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = "";
+  });
+
+  if (categorySelect && keepCategory) categorySelect.value = keepCategory;
+  const deptInput = document.getElementById("newItemDeptManage");
+  if (deptInput) deptInput.value = keepDept;
+  const sharedInput = document.getElementById("newItemSharedManage");
+  if (sharedInput) sharedInput.checked = keepShared;
+
+  document.getElementById("newItemNameManage")?.focus();
+}
+
+/* ---------- 在途商品：不顯示成本，確認到貨前跳確認 ---------- */
 function renderIncoming() {
   const tbody = document.getElementById("incomingTable");
   if (!tbody) return;
@@ -3317,8 +3425,12 @@ function renderIncoming() {
   }).join("") || `<tr><td colspan="9">目前沒有在途商品</td></tr>`;
 
   document.querySelectorAll(".receive-btn").forEach(button => {
-    button.addEventListener("click", () => receiveOrder(button.dataset.id));
+    button.onclick = () => receiveOrder(button.dataset.id);
   });
+}
+
+function renderReceiveTable() {
+  /* 製程更新頁已移除，保留空函式避免舊版 renderAll 報錯 */
 }
 
 function receiveOrder(orderId) {
@@ -3354,10 +3466,62 @@ function receiveOrder(orderId) {
   showToast(`${itemName} 已到貨 ${qty}，庫存已增加`);
 }
 
-/* 全員皆可快速盤點 */
-const gbRenderInventoryBase = renderInventory;
+/* ---------- 快速盤點：所有人可改庫存與安全庫存 ---------- */
+function openQuickStockModal(itemId) {
+  const item = getItem(itemId);
+  if (!item) return;
+
+  document.getElementById("quickStockItemId").value = item.id;
+  document.getElementById("quickStockItemText").textContent = item.name;
+  document.getElementById("quickStockOldQty").value = item.stock;
+  document.getElementById("quickStockNewQty").value = item.stock;
+
+  const safetyInput = document.getElementById("quickStockSafetyQty");
+  if (safetyInput) safetyInput.value = Number(item.safety) || 0;
+
+  const reason = document.getElementById("quickStockReason");
+  if (reason) reason.value = "盤點更新";
+
+  openModal("quickStockModal");
+}
+
+function confirmQuickStockUpdate() {
+  const item = getItem(document.getElementById("quickStockItemId")?.value);
+  const newQty = Number(document.getElementById("quickStockNewQty")?.value);
+  const newSafety = Number(document.getElementById("quickStockSafetyQty")?.value);
+  const reason = document.getElementById("quickStockReason")?.value || "盤點更新";
+
+  if (!item || Number.isNaN(newQty) || newQty < 0) {
+    showToast("請輸入正確庫存數量");
+    return;
+  }
+  if (Number.isNaN(newSafety) || newSafety < 0) {
+    showToast("請輸入正確安全庫存");
+    return;
+  }
+
+  const oldStock = Number(item.stock) || 0;
+  const oldSafety = Number(item.safety) || 0;
+
+  item.stock = newQty;
+  item.safety = newSafety;
+
+  if (oldStock !== newQty || oldSafety !== newSafety) {
+    const note = oldSafety !== newSafety ? `安全庫存 ${oldSafety} → ${newSafety}` : "";
+    addStockHistory(item, oldStock, newQty, reason, note);
+    lastUpdatedItemId = item.id;
+  }
+
+  saveData();
+  closeModal("quickStockModal");
+  renderAll();
+  showToast(`${item.name} 已更新`);
+}
+
+/* ---------- 庫存總覽：加回快速盤點按鈕 ---------- */
+const gbV22BaseRenderInventory = renderInventory;
 renderInventory = function() {
-  gbRenderInventoryBase();
+  gbV22BaseRenderInventory();
 
   document.querySelectorAll("#inventoryGrid .inventory-row:not(.header)").forEach(row => {
     const name = row.querySelector(".inventory-name strong")?.textContent || "";
@@ -3370,272 +3534,19 @@ renderInventory = function() {
     btn.title = "快速盤點";
     btn.setAttribute("aria-label", "快速盤點");
     btn.textContent = "✏️";
-    btn.addEventListener("click", () => openQuickStockModal(item.id));
+    btn.onclick = () => openQuickStockModal(item.id);
     row.appendChild(btn);
   });
 
-  gbMobileLastUpdaterOnly();
+  gbMobileLastUpdaterWithTime();
 };
 
-/* 手機版：最後更新灰色標籤只顯示更新人員 */
-function gbMobileLastUpdaterOnly() {
-  document.querySelectorAll("#inventoryGrid .meta-tags").forEach(meta => {
-    if (meta.dataset.gbOriginalHtml) return;
-    meta.dataset.gbOriginalHtml = meta.innerHTML;
-
-    const last = [...meta.querySelectorAll(".meta-tag")].find(tag => (tag.textContent || "").includes("最後更新"));
-    if (!last) return;
-
-    const match = (last.textContent || "").match(/最後更新[:：]([^｜]+)/);
-    const updater = match ? match[1].trim() : "";
-    if (updater) {
-      const mobile = document.createElement("span");
-      mobile.className = "meta-tag mobile-updater-only";
-      mobile.textContent = updater;
-      meta.appendChild(mobile);
-    }
-  });
-}
-
-function gbApplyRestoreFixStyles() {
-  if (document.getElementById("gbRestoreFixStyles")) return;
-
-  const style = document.createElement("style");
-  style.id = "gbRestoreFixStyles";
-  style.textContent = `
-    #inventoryGrid .quick-stock-btn{
-      margin-top:8px;
-      min-width:34px;
-      width:34px;
-      height:30px;
-      padding:0 !important;
-      border-radius:999px;
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      font-size:13px;
-    }
-
-    @media(max-width:760px){
-      #inventoryGrid .meta-tags .meta-tag:not(.mobile-updater-only){
-        display:none !important;
-      }
-      #inventoryGrid .meta-tags .mobile-updater-only{
-        display:inline-flex !important;
-      }
-    }
-
-    @media(min-width:761px){
-      #inventoryGrid .meta-tags .mobile-updater-only{
-        display:none !important;
-      }
-    }
-  `;
-  document.head.appendChild(style);
-}
-
-/* 清除測試異動：確認後才清除 */
-function clearHistoryRecords() {
-  if (!gbIsAdmin()) {
-    showToast("只有管理員可清除異動紀錄");
-    return;
-  }
-
-  const ok = window.confirm("確定要清除所有測試異動紀錄嗎？\n\n此操作只會清除「最近庫存異動」，不會影響庫存、品項或在途商品。");
-  if (!ok) return;
-
-  data.history = [];
-  saveData();
-  renderAll();
-  showToast("已清除庫存異動紀錄");
-}
-
-function gbBindFixButtons() {
-  document.getElementById("confirmQuickStockBtn")?.addEventListener("click", confirmQuickStockUpdate);
-  document.getElementById("cancelQuickStockBtn")?.addEventListener("click", () => closeModal("quickStockModal"));
-
-  const clearBtn = document.getElementById("clearHistoryBtn");
-  if (clearBtn) {
-    clearBtn.onclick = event => {
-      event.preventDefault();
-      clearHistoryRecords();
-    };
-  }
-
-  safeOn("itemManageSearch", "input", renderItemManageTable);
-  safeOn("itemManageCategoryFilter", "change", event => {
-    itemManageCategoryValue = event.target.value;
-    renderItemManageTable();
-  });
-}
-
-document.addEventListener("DOMContentLoaded", () => {
-  gbApplyRestoreFixStyles();
-  gbBindFixButtons();
-  gbFixSyncStatusText();
-  setTimeout(() => {
-    renderItemManageTable();
-    gbFixSyncStatusText();
-  }, 800);
-});
-
-const gbRestoreFixRenderAll = renderAll;
-renderAll = function() {
-  gbRestoreFixRenderAll();
-  gbApplyRestoreFixStyles();
-  gbBindFixButtons();
-  gbFixSyncStatusText();
-  renderItemManageTable();
-};
-
-/* 診斷用 */
-window.gbDiagnostic = function() {
-  return {
-    version: window.GB_VERSION,
-    itemCount: data.items?.length || 0,
-    orderCount: data.orders?.length || 0,
-    historyCount: data.history?.length || 0,
-    firebaseReady: !!window.GB_FIREBASE?.ready,
-    authReady: !!window.GB_AUTH?.ready,
-    syncText: document.getElementById("syncStatusText")?.textContent,
-    role: window.GB_AUTH?.role || document.getElementById("roleSelect")?.value,
-    currentTab
-  };
-};
-
-
-/* GoldenBird Inventory v2.0.3b｜Firebase 同步啟動修正 */
-window.GB_VERSION = "goldenbird-inventory-v2.0.3b-sync-fix";
-
-function gbCanStartRemoteSync() {
-  return !!(
-    window.GB_FIREBASE &&
-    window.GB_FIREBASE.ready &&
-    window.GB_FIREBASE.db &&
-    window.GB_AUTH &&
-    window.GB_AUTH.ready &&
-    window.GB_AUTH.user
-  );
-}
-
-function gbForceStartRemoteSync(reason = "") {
-  const status = document.getElementById("syncStatusText");
-
-  if (!gbCanStartRemoteSync()) {
-    if (status) {
-      status.textContent = "等待登入同步…";
-      status.classList.remove("ok", "bad");
-      status.classList.add("warn");
-    }
-    return false;
-  }
-
-  try {
-    if (typeof startRemoteSync === "function") {
-      startRemoteSync();
-      if (status && status.textContent === "尚未同步") {
-        status.textContent = "同步連線中…";
-        status.classList.remove("ok", "bad");
-        status.classList.add("warn");
-      }
-      console.log("GB sync started", reason);
-      return true;
-    }
-  } catch (error) {
-    console.error("GB sync start failed", error);
-    if (status) {
-      status.textContent = "同步啟動失敗";
-      status.classList.remove("ok", "warn");
-      status.classList.add("bad");
-    }
-  }
-
-  return false;
-}
-
-function gbScheduleSyncStart() {
-  gbForceStartRemoteSync("immediate");
-  setTimeout(() => gbForceStartRemoteSync("300ms"), 300);
-  setTimeout(() => gbForceStartRemoteSync("1000ms"), 1000);
-  setTimeout(() => gbForceStartRemoteSync("2500ms"), 2500);
-}
-
-window.addEventListener("gb-role-ready", gbScheduleSyncStart);
-document.addEventListener("DOMContentLoaded", gbScheduleSyncStart);
-
-const gbSyncFixRenderAll = renderAll;
-renderAll = function() {
-  gbSyncFixRenderAll();
-
-  const status = document.getElementById("syncStatusText");
-  if (status && status.textContent === "尚未同步") {
-    gbForceStartRemoteSync("renderAll");
-  }
-};
-
-window.gbDiagnostic = function() {
-  return {
-    version: window.GB_VERSION,
-    firebaseReady: !!window.GB_FIREBASE?.ready,
-    authReady: !!window.GB_AUTH?.ready,
-    hasUser: !!window.GB_AUTH?.user,
-    user: window.GB_AUTH?.user,
-    syncText: document.getElementById("syncStatusText")?.textContent,
-    hasStartRemoteSync: typeof startRemoteSync === "function",
-    hasFirestoreDb: !!window.GB_FIREBASE?.db,
-    canStartRemoteSync: gbCanStartRemoteSync(),
-    currentTab
-  };
-};
-
-window.gbForceStartRemoteSync = gbForceStartRemoteSync;
-
-
-/* GoldenBird Inventory v2.0.3c｜Emily 後台＋手機資訊列收合 */
-window.GB_VERSION = "goldenbird-inventory-v2.0.3c-emily-admin-mobile-header";
-
-function gbNormalizeRole(role) {
-  return String(role || "").trim().toLowerCase();
-}
-
-function gbIsAdminRole(role) {
-  const normalized = gbNormalizeRole(role || window.GB_AUTH?.role || document.getElementById("roleSelect")?.value);
-  return ["boss", "qing", "emily"].includes(normalized);
-}
-
-/* 確保 Emily / 老闆 / 青 可進管理後台 */
-const gbV203cRenderAdminBase = typeof renderAdmin === "function" ? renderAdmin : null;
-if (gbV203cRenderAdminBase) {
-  renderAdmin = function() {
-    const role = gbNormalizeRole(window.GB_AUTH?.role || document.getElementById("roleSelect")?.value);
-    const canManage = gbIsAdminRole(role);
-
-    const locked = document.getElementById("adminLocked");
-    const content = document.getElementById("adminContent");
-
-    if (locked) locked.classList.toggle("hidden", canManage);
-    if (content) content.classList.toggle("hidden", !canManage);
-
-    if (!canManage) return;
-
-    try {
-      renderAdminOrders();
-      renderCostReport();
-      renderItemManageTable();
-      if (typeof renderMappingManager === "function") renderMappingManager();
-    } catch (error) {
-      console.warn("renderAdmin inner render failed", error);
-    }
-  };
-}
-
-/* 手機最後更新標籤：顯示更新人 + 時間 */
-function gbCompactMobileLastUpdate() {
+/* ---------- 手機版：最後更新顯示人員 + 時間 ---------- */
+function gbMobileLastUpdaterWithTime() {
   document.querySelectorAll("#inventoryGrid .meta-tags").forEach(meta => {
     if (meta.dataset.gbMobileUpdateApplied === "true") return;
 
-    const tags = [...meta.querySelectorAll(".meta-tag")];
-    const last = tags.find(tag => (tag.textContent || "").includes("最後更新"));
+    const last = [...meta.querySelectorAll(".meta-tag")].find(tag => (tag.textContent || "").includes("最後更新"));
     if (!last) return;
 
     const raw = last.textContent || "";
@@ -3654,22 +3565,79 @@ function gbCompactMobileLastUpdate() {
   });
 }
 
-/* 手機上方帳號區收合 */
-function gbEnsureMobileHeaderCollapse() {
-  if (document.getElementById("gbMobileHeaderStyles")) return;
+/* ---------- 最近異動 ---------- */
+function renderHistoryPage() {
+  const list = document.getElementById("historyPageList");
+  if (!list) return;
+
+  const search = document.getElementById("historySearchInput")?.value.trim() || "";
+  const limit = document.getElementById("historyLimitSelect")?.value || "20";
+
+  let records = (data.history || []).filter(record => {
+    if (!search) return true;
+    return String(record.itemName || "").includes(search) ||
+      String(record.type || "").includes(search) ||
+      String(record.user || "").includes(search) ||
+      String(record.note || "").includes(search);
+  });
+
+  if (limit !== "all") records = records.slice(0, Number(limit) || 20);
+
+  if (!records.length) {
+    list.innerHTML = "尚無庫存異動紀錄";
+    return;
+  }
+
+  list.innerHTML = records.map(record => {
+    const changeText = Number(record.change) > 0 ? `+${record.change}` : `${record.change || 0}`;
+    return `
+      <div class="history-row">
+        <div><strong>${escapeHtml(record.itemName || "未命名品項")}</strong> <span class="meta-tag mode">${escapeHtml(record.type || "異動")}</span></div>
+        <div>${record.oldStock ?? "-"} → ${record.newStock ?? "-"}（${changeText}）</div>
+        <div class="history-meta">${escapeHtml(record.user || "未知")}｜${formatDateTime(record.time)}${record.note ? `｜${escapeHtml(record.note)}` : ""}</div>
+      </div>
+    `;
+  }).join("");
+}
+
+function clearHistoryRecords() {
+  if (!gbIsAdmin()) {
+    showToast("只有管理員可清除異動紀錄");
+    return;
+  }
+
+  const ok = window.confirm("確定要清除所有測試異動紀錄嗎？\n\n此操作只會清除「最近庫存異動」，不會影響庫存、品項或在途商品。");
+  if (!ok) return;
+
+  data.history = [];
+  saveData();
+  renderAll();
+  showToast("已清除庫存異動紀錄");
+}
+
+/* ---------- 手機版 header 收合 ---------- */
+function gbApplyStableStyles() {
+  if (document.getElementById("gbV22Styles")) return;
 
   const style = document.createElement("style");
-  style.id = "gbMobileHeaderStyles";
+  style.id = "gbV22Styles";
   style.textContent = `
-    .mobile-account-toggle {
-      display: none;
+    .mobile-account-toggle { display: none; }
+
+    #inventoryGrid .quick-stock-btn {
+      margin-top: 8px;
+      min-width: 34px;
+      width: 34px;
+      height: 30px;
+      padding: 0 !important;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
     }
 
-    @media (max-width: 760px) {
-      header .header-inner {
-        align-items: stretch;
-      }
-
+    @media(max-width:760px){
       .mobile-account-toggle {
         display: inline-flex !important;
         align-self: flex-end;
@@ -3688,54 +3656,80 @@ function gbEnsureMobileHeaderCollapse() {
         border: 1px solid var(--line);
       }
 
-      .role-box.mobile-open {
-        display: flex !important;
+      .role-box.mobile-open { display: flex !important; }
+
+      #inventoryGrid .meta-tags .meta-tag:not(.mobile-updater-only){
+        display:none !important;
       }
 
-      #inventoryGrid .meta-tags .meta-tag:not(.mobile-updater-only) {
-        display: none !important;
-      }
-
-      #inventoryGrid .meta-tags .mobile-updater-only {
-        display: inline-flex !important;
+      #inventoryGrid .meta-tags .mobile-updater-only{
+        display:inline-flex !important;
       }
     }
 
-    @media (min-width: 761px) {
-      #inventoryGrid .meta-tags .mobile-updater-only {
-        display: none !important;
+    @media(min-width:761px){
+      #inventoryGrid .meta-tags .mobile-updater-only{
+        display:none !important;
       }
     }
   `;
   document.head.appendChild(style);
 }
 
-function gbBindMobileAccountToggle() {
-  const btn = document.getElementById("mobileAccountToggleBtn");
+function gbBindStableEvents() {
+  const quickConfirm = document.getElementById("confirmQuickStockBtn");
+  if (quickConfirm) quickConfirm.onclick = confirmQuickStockUpdate;
+
+  const quickCancel = document.getElementById("cancelQuickStockBtn");
+  if (quickCancel) quickCancel.onclick = () => closeModal("quickStockModal");
+
+  const clearBtn = document.getElementById("clearHistoryBtn");
+  if (clearBtn) clearBtn.onclick = event => {
+    event.preventDefault();
+    clearHistoryRecords();
+  };
+
+  const itemSearch = document.getElementById("itemManageSearch");
+  if (itemSearch) itemSearch.oninput = renderItemManageTable;
+
+  const itemCategory = document.getElementById("itemManageCategoryFilter");
+  if (itemCategory) itemCategory.onchange = event => {
+    itemManageCategoryValue = event.target.value;
+    renderItemManageTable();
+  };
+
+  const mobileBtn = document.getElementById("mobileAccountToggleBtn");
   const roleBox = document.getElementById("roleBox") || document.querySelector(".role-box");
-  if (!btn || !roleBox || btn.dataset.bound === "true") return;
-
-  btn.addEventListener("click", () => {
-    roleBox.classList.toggle("mobile-open");
-    btn.textContent = roleBox.classList.contains("mobile-open") ? "收起帳號資訊 ▴" : "帳號 / 同步 ▾";
-  });
-
-  btn.dataset.bound = "true";
+  if (mobileBtn && roleBox && mobileBtn.dataset.bound !== "true") {
+    mobileBtn.onclick = () => {
+      roleBox.classList.toggle("mobile-open");
+      mobileBtn.textContent = roleBox.classList.contains("mobile-open") ? "收起帳號資訊 ▴" : "帳號 / 同步 ▾";
+    };
+    mobileBtn.dataset.bound = "true";
+  }
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  gbEnsureMobileHeaderCollapse();
-  gbBindMobileAccountToggle();
-  setTimeout(gbCompactMobileLastUpdate, 400);
-});
-
-const gbV203cRenderAll = renderAll;
+/* ---------- 統一 renderAll，避免舊版不存在的區塊報錯 ---------- */
 renderAll = function() {
-  gbV203cRenderAll();
-  gbEnsureMobileHeaderCollapse();
-  gbBindMobileAccountToggle();
-  gbCompactMobileLastUpdate();
+  ensureDataShape();
+  gbSafeRender(ensureRoleOptions, "ensureRoleOptions");
+  gbSafeRender(ensureStockHistoryUI, "ensureStockHistoryUI");
+  gbSafeRender(renderInventory, "renderInventory");
+  gbSafeRender(renderIncoming, "renderIncoming");
+  gbSafeRender(renderAdmin, "renderAdmin");
+  gbSafeRender(setManualOrderDefaultDate, "setManualOrderDefaultDate");
+  gbSafeRender(renderStockHistory, "renderStockHistory");
+  gbSafeRender(renderHistoryPage, "renderHistoryPage");
+  gbSafeRender(ensureExcelExportButton, "ensureExcelExportButton");
+  gbApplyStableStyles();
+  gbBindStableEvents();
 };
+
+document.addEventListener("DOMContentLoaded", () => {
+  gbApplyStableStyles();
+  gbBindStableEvents();
+  renderAll();
+});
 
 window.gbDiagnostic = function() {
   return {
@@ -3745,9 +3739,13 @@ window.gbDiagnostic = function() {
     hasUser: !!window.GB_AUTH?.user,
     user: window.GB_AUTH?.user,
     role: window.GB_AUTH?.role || document.getElementById("roleSelect")?.value,
-    normalizedRole: gbNormalizeRole(window.GB_AUTH?.role || document.getElementById("roleSelect")?.value),
-    isAdmin: gbIsAdminRole(),
+    isAdmin: gbIsAdmin(),
     syncText: document.getElementById("syncStatusText")?.textContent,
+    hasFirestoreDb: !!window.GB_FIREBASE?.db,
+    hasStartRemoteSync: typeof startRemoteSync === "function",
+    itemCount: data.items?.length || 0,
+    orderCount: data.orders?.length || 0,
+    historyCount: data.history?.length || 0,
     currentTab
   };
 };
