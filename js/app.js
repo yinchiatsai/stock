@@ -5835,3 +5835,156 @@ window.GB_VERSION = "goldenbird-inventory-v3.0-stable";
 
 /* GoldenBird Inventory v3.0.1｜Firebase 重複宣告修正 */
 window.GB_VERSION = "goldenbird-inventory-v3.0.1-firebase-duplicate-fix";
+
+/* GoldenBird Inventory v3.0.2｜同步錯誤診斷修正 */
+(function(){
+  function gbSetSyncError(error, stage){
+    window.lastSyncError = {
+      stage,
+      code: error?.code || "",
+      message: error?.message || String(error || ""),
+      name: error?.name || "",
+      time: new Date().toISOString()
+    };
+
+    console.error("GB Firestore sync error:", window.lastSyncError, error);
+
+    const el = document.getElementById("syncStatusText");
+    if(el){
+      if(error?.code === "permission-denied"){
+        el.textContent = "同步失敗：權限不足";
+      }else if(error?.code === "unavailable"){
+        el.textContent = "同步失敗：網路異常";
+      }else{
+        el.textContent = "同步失敗";
+      }
+      el.classList.remove("ok","warn");
+      el.classList.add("bad");
+    }
+  }
+
+  function gbDescribeSyncError(){
+    const e = window.lastSyncError;
+    if(!e) return "目前沒有記錄到同步錯誤。";
+
+    if(e.code === "permission-denied"){
+      return "Firestore 權限不足。請檢查 Firebase Firestore Rules 是否允許此登入帳號讀寫 system/main。";
+    }
+
+    if(e.code === "unavailable"){
+      return "Firestore 暫時無法連線，通常是網路或 Firebase 服務暫時問題。";
+    }
+
+    return `${e.stage || "sync"}｜${e.code || "no-code"}｜${e.message || ""}`;
+  }
+
+  function gbStartRemoteSyncDiagnostic(){
+    const ref = getMainDocRef();
+    if(!ref){
+      updateSyncStatus("未連線", "warn");
+      window.lastSyncError = {
+        stage: "getMainDocRef",
+        code: "no-ref",
+        message: "GB_FIREBASE.db 尚未準備好，或 getMainDocRef 無法取得 Firestore 文件。",
+        time: new Date().toISOString()
+      };
+      return;
+    }
+
+    if(gbUnsubscribeMainDoc){
+      try{ gbUnsubscribeMainDoc(); }catch(error){ console.warn(error); }
+    }
+
+    updateSyncStatus("同步連線中…", "warn");
+    window.lastSyncError = null;
+
+    const applySnapshot = snapshot => {
+      try{
+        if(!snapshot.exists){
+          return false;
+        }
+
+        const remoteData = normalizeRemoteData(snapshot.data());
+        if(!remoteData){
+          window.lastSyncError = {
+            stage: "normalizeRemoteData",
+            code: "empty-payload",
+            message: "Firestore 文件存在，但沒有 payload 資料。",
+            time: new Date().toISOString()
+          };
+          updateSyncStatus("同步失敗：資料格式", "bad");
+          return false;
+        }
+
+        gbIsApplyingRemote = true;
+        data = remoteData;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        gbRemoteReady = true;
+        gbIsApplyingRemote = false;
+        updateSyncStatus("已同步", "ok");
+        renderAll();
+        return true;
+      }catch(error){
+        gbIsApplyingRemote = false;
+        gbSetSyncError(error, "applySnapshot");
+        return false;
+      }
+    };
+
+    ref.get()
+      .then(snapshot => {
+        if(snapshot.exists){
+          applySnapshot(snapshot);
+          return null;
+        }
+
+        return ref.set({
+          payload: data,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          updatedBy: window.GB_AUTH?.user?.email || "unknown",
+          version: window.GB_VERSION || "v3.0.2"
+        }, { merge: true }).then(() => {
+          gbRemoteReady = true;
+          updateSyncStatus("已同步", "ok");
+        });
+      })
+      .then(() => {
+        gbUnsubscribeMainDoc = ref.onSnapshot(snapshot => {
+          if(!snapshot.exists) return;
+          applySnapshot(snapshot);
+        }, error => gbSetSyncError(error, "onSnapshot"));
+      })
+      .catch(error => gbSetSyncError(error, "initial get/set"));
+  }
+
+  // 覆蓋同步函式，保留原資料結構
+  window.startRemoteSync = gbStartRemoteSyncDiagnostic;
+  startRemoteSync = gbStartRemoteSyncDiagnostic;
+
+  window.gbSyncDebug = function(){
+    return {
+      syncText: document.getElementById("syncStatusText")?.textContent,
+      firebaseReady: !!window.GB_FIREBASE?.ready,
+      authReady: !!window.GB_AUTH?.ready,
+      user: window.GB_AUTH?.user,
+      role: window.GB_AUTH?.role,
+      docPath: typeof GB_SYNC_DOC_PATH !== "undefined" ? GB_SYNC_DOC_PATH : "",
+      hasDb: !!window.GB_FIREBASE?.db,
+      lastSyncError: window.lastSyncError,
+      suggestion: gbDescribeSyncError()
+    };
+  };
+
+  window.gbRetrySync = function(){
+    window.lastSyncError = null;
+    gbStartRemoteSyncDiagnostic();
+  };
+
+  document.addEventListener("DOMContentLoaded",()=>{
+    setTimeout(()=>{
+      if(document.getElementById("syncStatusText")?.textContent !== "已同步"){
+        gbStartRemoteSyncDiagnostic();
+      }
+    }, 1200);
+  });
+})();
