@@ -63,7 +63,6 @@
         </div>
         <div class="right">
           <button class="secondary small" id="restockToggleBtn">只看需補貨</button>
-          <button class="secondary small" id="resetDemoBtn">重置示範資料</button>
         </div>
       </div>
 
@@ -74,8 +73,8 @@
     <!-- 在途商品 -->
     <section id="incoming" class="tab-panel hidden">
       <div class="section-title">
-        <h2>在途 / 部分到貨清單</h2>
-        <span class="badge info">全員可看，不顯示成本</span>
+        <h2>在途商品 / 到貨登記</h2>
+        <span class="badge info">查看叫貨並直接確認到貨</span>
       </div>
 
       <table>
@@ -86,64 +85,53 @@
             <th>叫貨數量</th>
             <th>已到貨</th>
             <th>剩餘在途</th>
+            <th>成本</th>
+            <th>叫貨人</th>
             <th>狀態</th>
+            <th>本次到貨</th>
+            <th>操作</th>
           </tr>
         </thead>
         <tbody id="incomingTable"></tbody>
       </table>
     </section>
 
-    <!-- 製程更新 -->
-    <section id="update" class="tab-panel hidden">
+    <!-- 管理後台 -->
+    
+
+
+    <section id="history" class="tab-panel hidden">
       <div class="section-title">
-        <h2>製程更新</h2>
-        <span class="badge warn">目前資料存在瀏覽器，正式版會改接 Firebase</span>
+        <h2>最近庫存異動</h2>
+        <span class="badge info">追蹤盤點、到貨與新增紀錄</span>
       </div>
 
       <div class="card">
-        <h3>手動盤點 / 更新目前庫存</h3>
         <div class="form-grid">
           <div class="field">
-            <label>搜尋並選擇品項</label>
-            <input id="stockSearchInput" placeholder="輸入關鍵字（例如：壓、墨、木）" autocomplete="off" />
-            <div id="autocompleteList"></div>
-            <input type="hidden" id="stockItemSelect" />
+            <label>搜尋異動紀錄</label>
+            <input id="historySearchInput" placeholder="搜尋品項、原因、人員" />
           </div>
-
           <div class="field">
-            <label>目前實際庫存</label>
-            <input id="stockQtyInput" type="number" min="0" placeholder="例如 30" />
+            <label>顯示筆數</label>
+            <select id="historyLimitSelect">
+              <option value="20">最近 20 筆</option>
+              <option value="50">最近 50 筆</option>
+              <option value="100">最近 100 筆</option>
+              <option value="all">全部</option>
+            </select>
           </div>
-
-          <div class="field">
-            <label>備註</label>
-            <input id="stockNoteInput" placeholder="例如：月底盤點" />
+          <div class="field filter-action-field">
+            <button id="clearHistoryBtn" class="danger" type="button">清除測試異動紀錄</button>
           </div>
         </div>
-
-        <p class="note">若輸入錯誤，可以再次搜尋同一品項並輸入正確數字覆蓋。</p>
-        <button id="updateStockBtn">更新庫存</button>
+        <p class="note">清除異動紀錄不會影響目前庫存、品項或在途資料。</p>
       </div>
 
-      <div class="section-title">
-        <h2>到貨登記</h2>
-        <span class="badge info">支援部分到貨</span>
+      <div class="card">
+        <div id="historyPageList" class="stock-history-list">尚無庫存異動紀錄</div>
       </div>
-
-      <table>
-        <thead>
-          <tr>
-            <th>品項</th>
-            <th>剩餘在途</th>
-            <th>本次到貨</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody id="receiveTable"></tbody>
-      </table>
     </section>
-
-    <!-- 管理後台 -->
 
 <section id="admin" class="tab-panel hidden">
       <div id="adminLocked" class="card locked">
@@ -155,23 +143,8 @@
         <div class="admin-section order-section">
           <div class="section-title admin-section-title">
             <h2>叫貨管理</h2>
-            <span class="badge info">上傳截圖或手動新增</span>
           </div>
           <div class="order-input-grid">
-        <div class="card order-card">
-          <h3>叫貨截圖上傳</h3>
-          <div class="form-grid">
-            <div class="field">
-              <label>目前叫貨人</label>
-              <input id="orderPersonDisplay" value="老闆" readonly />
-            </div>
-            <div class="field full">
-              <label>上傳截圖</label>
-              <input id="orderScreenshotInput" type="file" accept="image/*" />
-              <div id="screenshotPreview" class="screenshot-preview"></div>
-            </div>
-          </div>
-        </div>
 
         <div class="card">
           <h3>手動新增叫貨</h3>
@@ -326,6 +299,10 @@
               <input id="newItemSafetyManage" type="number" placeholder="例如：10" />
             </div>
             <div class="field">
+              <label>初始庫存</label>
+              <input id="newItemStockManage" type="number" min="0" placeholder="例如：100" />
+            </div>
+            <div class="field">
               <label>管理部門</label>
               <input id="newItemDeptManage" placeholder="例如：金屬 / 彩印" />
             </div>
@@ -377,57 +354,40 @@
         </table>
         </div>
         </div>
-
-        <div class="admin-section mapping-section">
-        <div class="section-title">
-          <h2>商品對應表</h2>
-          <span class="badge info">系統辨識用</span>
-        </div>
-
-        <div class="card">
-          <div class="form-grid">
-            <div class="field">
-              <label>平台原始名稱 / 關鍵字</label>
-              <input id="mappingKeyword" placeholder="例如：亚克力板 / 有机玻璃" />
-            </div>
-
-            <div class="field">
-              <label>對應內部品項（可搜尋）</label>
-              <input id="mappingItemSearch" placeholder="輸入內部品項關鍵字" autocomplete="off" />
-              <div id="mappingAutocompleteList"></div>
-              <input type="hidden" id="mappingItemSelect" />
-            </div>
-
-            <div class="field">
-              <label>說明</label>
-              <input id="mappingNote" placeholder="例如：阿里巴巴常見名稱" />
-            </div>
-          </div>
-          <div class="form-actions">
-            <button id="addMappingBtn">新增對應</button>
-          </div>
-          <p class="note">對應內部品項必須先存在，且需要從搜尋結果點選。若找不到，請先到「品項管理」新增品項。</p></div>
-        </div>
-
-        <div class="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>平台原始名稱 / 關鍵字</th>
-              <th>對應內部品項</th>
-              <th>說明</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody id="mappingTable"></tbody>
-        </table>
-        </div>
-        </div>
       </div>
     </section>
   </main>
 
   <div id="toast" class="toast"></div>
+
+
+  <div id="quickStockModal" class="modal-mask">
+    <div class="modal-box">
+      <h3>快速盤點</h3>
+      <input type="hidden" id="quickStockItemId" />
+      <p id="quickStockItemText">請確認品項</p>
+      <div class="field"><label>目前庫存</label><input id="quickStockOldQty" readonly /></div>
+      <div class="field"><label>修改後庫存</label><input id="quickStockNewQty" type="number" min="0" /></div>
+      <div class="field">
+        <label>異動原因</label>
+        <select id="quickStockReason">
+          <option value="盤點更新">盤點更新</option>
+          <option value="報廢調整">報廢調整</option>
+          <option value="借出調整">借出調整</option>
+          <option value="歸還調整">歸還調整</option>
+          <option value="其他調整">其他調整</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>自訂原因（選填）</label>
+        <input id="quickStockCustomReason" placeholder="例如：月底盤點修正" />
+      </div>
+      <div class="modal-actions">
+        <button class="secondary" id="cancelQuickStockBtn" type="button">取消</button>
+        <button id="confirmQuickStockBtn" type="button">確認更新</button>
+      </div>
+    </div>
+  </div>
 
   <!-- 密碼 Modal -->
   <div id="passwordModal" class="modal-mask">
