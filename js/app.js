@@ -3151,3 +3151,354 @@ window.gbDiagnostic = function() {
     currentTab
   };
 };
+
+
+/* GoldenBird Inventory v2.0.3a｜回復版修正 */
+window.GB_VERSION = "goldenbird-inventory-v2.0.3a-restore-fixes";
+
+function gbRole() {
+  return String(window.GB_AUTH?.role || document.getElementById("roleSelect")?.value || "").toLowerCase();
+}
+
+function gbIsAdmin() {
+  return ["boss", "qing", "emily"].includes(gbRole());
+}
+
+function gbCanAudit() {
+  return true;
+}
+
+/* 修正：後台品項管理一定讀取 data.items */
+function renderItemManageTable() {
+  refreshItemCategoryFilterOptions();
+
+  const keyword = document.getElementById("itemManageSearch")?.value.trim() || "";
+  itemManageCategoryValue = document.getElementById("itemManageCategoryFilter")?.value || itemManageCategoryValue || "all";
+  const tbody = document.getElementById("itemManageTable");
+  if (!tbody) return;
+
+  const rows = (data.items || [])
+    .filter(item => itemManageCategoryValue === "all" || item.category === itemManageCategoryValue)
+    .filter(item => !keyword || (item.name || "").includes(keyword) || (item.category || "").includes(keyword) || (item.dept || "").includes(keyword))
+    .map(item => `
+      <tr class="${item.id === lastCreatedItemId ? "highlight-row" : ""}">
+        <td>${escapeHtml(item.name || "")}</td>
+        <td>${escapeHtml(item.category || "")}</td>
+        <td>${Number(item.safety) || 0}</td>
+        <td>${item.disabled ? "已停用" : "使用中"}</td>
+        <td>
+          <button class="secondary small edit-item-btn" data-id="${item.id}">修改</button>
+          <button class="danger small toggle-item-btn" data-id="${item.id}">${item.disabled ? "啟用" : "停用"}</button>
+          <button class="danger small delete-item-btn" data-id="${item.id}" style="background:#7a1f1f">刪除</button>
+        </td>
+      </tr>
+    `).join("");
+
+  tbody.innerHTML = rows || `<tr><td colspan="5">找不到符合的品項</td></tr>`;
+
+  document.querySelectorAll(".edit-item-btn").forEach(button => {
+    button.addEventListener("click", () => editItem(button.dataset.id));
+  });
+  document.querySelectorAll(".toggle-item-btn").forEach(button => {
+    button.addEventListener("click", () => toggleItemDisabled(button.dataset.id));
+  });
+  document.querySelectorAll(".delete-item-btn").forEach(button => {
+    button.addEventListener("click", () => openDeleteItem(button.dataset.id));
+  });
+}
+
+/* 修正：分類篩選同步所有目前品項分類 */
+function refreshItemCategoryFilterOptions() {
+  const select = document.getElementById("itemManageCategoryFilter");
+  if (!select) return;
+
+  const categories = [...new Set((data.items || []).map(item => item.category).filter(Boolean))].sort();
+  const currentValue = itemManageCategoryValue || "all";
+  select.innerHTML = `<option value="all">全部分類</option>` + categories.map(category =>
+    `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`
+  ).join("");
+
+  select.value = categories.includes(currentValue) ? currentValue : "all";
+  itemManageCategoryValue = select.value;
+}
+
+/* 修正：若已登入且 Firebase 有啟動，同步狀態不要卡在尚未同步 */
+function gbFixSyncStatusText() {
+  const text = document.getElementById("syncStatusText");
+  if (!text) return;
+
+  const current = (text.textContent || "").trim();
+  if (current === "尚未同步" && window.GB_FIREBASE?.ready && window.GB_AUTH?.ready) {
+    updateSyncStatus("同步連線中…", "warn");
+    if (typeof startRemoteSync === "function") {
+      try { startRemoteSync(); } catch (error) { console.warn(error); }
+    }
+  }
+}
+
+/* 快速盤點：庫存＋安全庫存一起可改 */
+function openQuickStockModal(itemId) {
+  const item = getItem(itemId);
+  if (!item) return;
+
+  document.getElementById("quickStockItemId").value = item.id;
+  document.getElementById("quickStockItemText").textContent = item.name;
+  document.getElementById("quickStockOldQty").value = item.stock;
+  document.getElementById("quickStockNewQty").value = item.stock;
+
+  const safetyInput = document.getElementById("quickStockSafetyQty");
+  if (safetyInput) safetyInput.value = Number(item.safety) || 0;
+
+  const reason = document.getElementById("quickStockReason");
+  if (reason) reason.value = "盤點更新";
+
+  openModal("quickStockModal");
+}
+
+function confirmQuickStockUpdate() {
+  const item = getItem(document.getElementById("quickStockItemId")?.value);
+  const newQty = Number(document.getElementById("quickStockNewQty")?.value);
+  const newSafety = Number(document.getElementById("quickStockSafetyQty")?.value);
+  const reason = document.getElementById("quickStockReason")?.value || "盤點更新";
+
+  if (!item || Number.isNaN(newQty) || newQty < 0) {
+    showToast("請輸入正確庫存數量");
+    return;
+  }
+
+  if (Number.isNaN(newSafety) || newSafety < 0) {
+    showToast("請輸入正確安全庫存");
+    return;
+  }
+
+  const oldStock = Number(item.stock) || 0;
+  const oldSafety = Number(item.safety) || 0;
+
+  item.stock = newQty;
+  item.safety = newSafety;
+
+  if (oldStock !== newQty || oldSafety !== newSafety) {
+    const note = oldSafety !== newSafety ? `安全庫存 ${oldSafety} → ${newSafety}` : "";
+    addStockHistory(item, oldStock, newQty, reason, note);
+    lastUpdatedItemId = item.id;
+  }
+
+  saveData();
+  closeModal("quickStockModal");
+  renderAll();
+  showToast(`${item.name} 已更新`);
+}
+
+/* 在途商品：不顯示成本，確認到貨前跳確認 */
+function renderIncoming() {
+  const tbody = document.getElementById("incomingTable");
+  if (!tbody) return;
+
+  const activeOrders = (data.orders || []).filter(order => Number(order.qty) - Number(order.received) > 0);
+
+  tbody.innerHTML = activeOrders.map(order => {
+    const item = getItem(order.itemId);
+    const remain = Math.max(0, Number(order.qty) - Number(order.received));
+    const statusClass = order.status === "部分到貨" ? "warn" : "info";
+
+    return `
+      <tr class="${order.id === lastCreatedOrderId ? "highlight-row" : ""}">
+        <td>${order.date || ""}</td>
+        <td>${item ? escapeHtml(item.name) : escapeHtml(order.deletedItemName || "已刪除品項")}</td>
+        <td>${order.qty}</td>
+        <td>${order.received}</td>
+        <td>${remain}</td>
+        <td>${escapeHtml(order.person || "-")}</td>
+        <td><span class="badge ${statusClass}">${order.status}</span></td>
+        <td><input class="receive-input" data-id="${order.id}" type="number" min="1" max="${remain}" placeholder="數量" style="width:90px;"></td>
+        <td><button class="small receive-btn" data-id="${order.id}">確認到貨</button></td>
+      </tr>
+    `;
+  }).join("") || `<tr><td colspan="9">目前沒有在途商品</td></tr>`;
+
+  document.querySelectorAll(".receive-btn").forEach(button => {
+    button.addEventListener("click", () => receiveOrder(button.dataset.id));
+  });
+}
+
+function receiveOrder(orderId) {
+  const order = (data.orders || []).find(item => item.id === orderId);
+  if (!order) return;
+
+  const input = document.querySelector(`.receive-input[data-id="${orderId}"]`);
+  const qty = Number(input?.value);
+  const remain = Number(order.qty) - Number(order.received);
+  const item = getItem(order.itemId);
+  const itemName = item ? item.name : (order.deletedItemName || "品項");
+
+  if (!qty || qty <= 0 || qty > remain) {
+    showToast("請輸入正確到貨數量");
+    return;
+  }
+
+  const ok = window.confirm(`確認將「${itemName}」本次到貨 ${qty} 加入庫存嗎？\n\n目前剩餘在途：${remain}\n確認後會增加庫存，並更新在途數量。`);
+  if (!ok) return;
+
+  order.received = Number(order.received) + qty;
+  updateOrderStatus(order);
+
+  if (item) {
+    const oldStock = Number(item.stock) || 0;
+    item.stock = oldStock + qty;
+    addStockHistory(item, oldStock, item.stock, "到貨入庫", `${order.date || ""} 叫貨到貨`);
+    lastUpdatedItemId = item.id;
+  }
+
+  saveData();
+  renderAll();
+  showToast(`${itemName} 已到貨 ${qty}，庫存已增加`);
+}
+
+/* 全員皆可快速盤點 */
+const gbRenderInventoryBase = renderInventory;
+renderInventory = function() {
+  gbRenderInventoryBase();
+
+  document.querySelectorAll("#inventoryGrid .inventory-row:not(.header)").forEach(row => {
+    const name = row.querySelector(".inventory-name strong")?.textContent || "";
+    const item = (data.items || []).find(i => i.name === name && !i.disabled);
+    if (!item || row.querySelector(".quick-stock-btn")) return;
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "secondary small quick-stock-btn";
+    btn.title = "快速盤點";
+    btn.setAttribute("aria-label", "快速盤點");
+    btn.textContent = "✏️";
+    btn.addEventListener("click", () => openQuickStockModal(item.id));
+    row.appendChild(btn);
+  });
+
+  gbMobileLastUpdaterOnly();
+};
+
+/* 手機版：最後更新灰色標籤只顯示更新人員 */
+function gbMobileLastUpdaterOnly() {
+  document.querySelectorAll("#inventoryGrid .meta-tags").forEach(meta => {
+    if (meta.dataset.gbOriginalHtml) return;
+    meta.dataset.gbOriginalHtml = meta.innerHTML;
+
+    const last = [...meta.querySelectorAll(".meta-tag")].find(tag => (tag.textContent || "").includes("最後更新"));
+    if (!last) return;
+
+    const match = (last.textContent || "").match(/最後更新[:：]([^｜]+)/);
+    const updater = match ? match[1].trim() : "";
+    if (updater) {
+      const mobile = document.createElement("span");
+      mobile.className = "meta-tag mobile-updater-only";
+      mobile.textContent = updater;
+      meta.appendChild(mobile);
+    }
+  });
+}
+
+function gbApplyRestoreFixStyles() {
+  if (document.getElementById("gbRestoreFixStyles")) return;
+
+  const style = document.createElement("style");
+  style.id = "gbRestoreFixStyles";
+  style.textContent = `
+    #inventoryGrid .quick-stock-btn{
+      margin-top:8px;
+      min-width:34px;
+      width:34px;
+      height:30px;
+      padding:0 !important;
+      border-radius:999px;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      font-size:13px;
+    }
+
+    @media(max-width:760px){
+      #inventoryGrid .meta-tags .meta-tag:not(.mobile-updater-only){
+        display:none !important;
+      }
+      #inventoryGrid .meta-tags .mobile-updater-only{
+        display:inline-flex !important;
+      }
+    }
+
+    @media(min-width:761px){
+      #inventoryGrid .meta-tags .mobile-updater-only{
+        display:none !important;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+/* 清除測試異動：確認後才清除 */
+function clearHistoryRecords() {
+  if (!gbIsAdmin()) {
+    showToast("只有管理員可清除異動紀錄");
+    return;
+  }
+
+  const ok = window.confirm("確定要清除所有測試異動紀錄嗎？\n\n此操作只會清除「最近庫存異動」，不會影響庫存、品項或在途商品。");
+  if (!ok) return;
+
+  data.history = [];
+  saveData();
+  renderAll();
+  showToast("已清除庫存異動紀錄");
+}
+
+function gbBindFixButtons() {
+  document.getElementById("confirmQuickStockBtn")?.addEventListener("click", confirmQuickStockUpdate);
+  document.getElementById("cancelQuickStockBtn")?.addEventListener("click", () => closeModal("quickStockModal"));
+
+  const clearBtn = document.getElementById("clearHistoryBtn");
+  if (clearBtn) {
+    clearBtn.onclick = event => {
+      event.preventDefault();
+      clearHistoryRecords();
+    };
+  }
+
+  safeOn("itemManageSearch", "input", renderItemManageTable);
+  safeOn("itemManageCategoryFilter", "change", event => {
+    itemManageCategoryValue = event.target.value;
+    renderItemManageTable();
+  });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  gbApplyRestoreFixStyles();
+  gbBindFixButtons();
+  gbFixSyncStatusText();
+  setTimeout(() => {
+    renderItemManageTable();
+    gbFixSyncStatusText();
+  }, 800);
+});
+
+const gbRestoreFixRenderAll = renderAll;
+renderAll = function() {
+  gbRestoreFixRenderAll();
+  gbApplyRestoreFixStyles();
+  gbBindFixButtons();
+  gbFixSyncStatusText();
+  renderItemManageTable();
+};
+
+/* 診斷用 */
+window.gbDiagnostic = function() {
+  return {
+    version: window.GB_VERSION,
+    itemCount: data.items?.length || 0,
+    orderCount: data.orders?.length || 0,
+    historyCount: data.history?.length || 0,
+    firebaseReady: !!window.GB_FIREBASE?.ready,
+    authReady: !!window.GB_AUTH?.ready,
+    syncText: document.getElementById("syncStatusText")?.textContent,
+    role: window.GB_AUTH?.role || document.getElementById("roleSelect")?.value,
+    currentTab
+  };
+};
