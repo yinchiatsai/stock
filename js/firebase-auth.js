@@ -16,7 +16,7 @@ const USER_ROLES = {
   "kuangchieh.tai0505@gmail.com": "GJ",
   "unrealmonde@gmail.com": "emily",
   "hey2501@gmail.com": "qing",
-  "process@example.com": "process",
+  "q82813292@gmail.com": "PX",
   "sun4041098@gmail.com": "boss"
 };
 
@@ -24,7 +24,8 @@ const ROLE_LABEL = {
   boss: "老闆",
   qing: "青",
   emily: "Emily",
-  GJ: "GJ",
+  GJ: "光杰",
+  PX: "姵璇",
   staff: "全員 / 美編"
 };
 
