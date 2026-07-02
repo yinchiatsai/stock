@@ -4114,3 +4114,104 @@ renderAll = function() {
     updateHistorySummary();
   };
 })();
+
+/* GoldenBird Inventory v2.2.5｜手機版頁籤凍結修正 */
+(function(){
+  function applyMobileStickyFix(){
+    if(document.getElementById("gbV225MobileStickyCss")) return;
+    const style=document.createElement("style");
+    style.id="gbV225MobileStickyCss";
+    style.textContent=`
+      @media(max-width:760px){
+        /* header 不固定，避免大標題與帳號區下滑時往下擠 */
+        header,
+        header .header-inner{
+          position:relative !important;
+          top:auto !important;
+          z-index:auto !important;
+        }
+
+        /* 未下滑前：四個主標籤正常顯示 */
+        main .tabs{
+          position:relative !important;
+          top:auto !important;
+          z-index:20 !important;
+          display:grid !important;
+          grid-template-columns:1fr 1fr !important;
+          gap:8px !important;
+          padding:8px 12px !important;
+          background:transparent !important;
+          border-bottom:0 !important;
+          backdrop-filter:none !important;
+        }
+
+        main .tabs .tab{
+          display:flex !important;
+          align-items:center !important;
+          justify-content:center !important;
+          width:100% !important;
+          min-width:0 !important;
+          white-space:nowrap !important;
+          padding:10px 8px !important;
+          font-size:15px !important;
+        }
+
+        main .tabs .tab[data-tab="history"],
+        main .tabs .tab[data-tab="admin"]{
+          display:flex !important;
+        }
+
+        /* 下滑後：只固定庫存總覽 / 在途商品 */
+        body.gb-mobile-scrolled main .tabs{
+          position:sticky !important;
+          top:0 !important;
+          z-index:100 !important;
+          background:rgba(248,247,243,.96) !important;
+          backdrop-filter:blur(8px) !important;
+          border-bottom:1px solid var(--line) !important;
+          box-shadow:0 6px 16px rgba(0,0,0,.05);
+        }
+
+        body.gb-mobile-scrolled main .tabs .tab[data-tab="history"],
+        body.gb-mobile-scrolled main .tabs .tab[data-tab="admin"]{
+          display:none !important;
+        }
+
+        body.gb-mobile-scrolled main .tabs .tab[data-tab="overview"],
+        body.gb-mobile-scrolled main .tabs .tab[data-tab="incoming"]{
+          display:flex !important;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function updateMobileScrollState(){
+    if(window.innerWidth > 760){
+      document.body.classList.remove("gb-mobile-scrolled");
+      return;
+    }
+    document.body.classList.toggle("gb-mobile-scrolled", window.scrollY > 120);
+  }
+
+  function bindMobileStickyFix(){
+    if(window.__gbMobileStickyFixBound) return;
+    window.__gbMobileStickyFixBound=true;
+    window.addEventListener("scroll", updateMobileScrollState, {passive:true});
+    window.addEventListener("resize", updateMobileScrollState);
+  }
+
+  document.addEventListener("DOMContentLoaded",()=>{
+    applyMobileStickyFix();
+    bindMobileStickyFix();
+    updateMobileScrollState();
+  });
+
+  const oldRenderAll=renderAll;
+  renderAll=function(){
+    oldRenderAll();
+    applyMobileStickyFix();
+    bindMobileStickyFix();
+    updateMobileScrollState();
+  };
+})();
