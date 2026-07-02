@@ -9588,3 +9588,100 @@ window.GB_VERSION = "goldenbird-inventory-v3.0.1-firebase-duplicate-fix";
     };
   };
 })();
+
+/* GoldenBird Inventory v3.2.9｜成本資訊顯示權限修正 */
+(function(){
+  window.GB_VERSION = "goldenbird-inventory-v3.2.9-cost-visibility-fix";
+
+  function gbV329Role(){
+    return String(window.GB_AUTH?.role || document.getElementById("roleSelect")?.value || "staff").toLowerCase();
+  }
+
+  function gbV329CanSeeCost(){
+    return ["boss", "emily", "qing"].includes(gbV329Role());
+  }
+
+  function gbV329IsAdminCostPage(){
+    const isAdminTab = typeof currentTab !== "undefined" ? currentTab === "admin" : document.querySelector('.tab.active')?.dataset?.tab === "admin";
+    if(!isAdminTab) return false;
+
+    const activeSub = document.querySelector(".admin-sub-tab.active")?.dataset?.adminTab || localStorage.getItem("gbAdminSubTab") || "";
+    return activeSub === "costs" || activeSub === "cost" || activeSub.includes("cost");
+  }
+
+  function gbV329RemoveCostSummaryOutsideAllowedArea(){
+    document.querySelectorAll("#gbV327CostSummary, .gb-cost-summary-v327").forEach(el => {
+      if(!gbV329CanSeeCost() || !gbV329IsAdminCostPage()){
+        el.remove();
+        return;
+      }
+
+      // 如果不小心被插到在途商品 / 庫存總覽 / 最近異動，直接移除
+      if(el.closest("#incoming") || el.closest("#inventory") || el.closest("#history")){
+        el.remove();
+      }
+    });
+  }
+
+  function gbV329HideCostTextOutsideAdmin(){
+    if(document.getElementById("gbV329CostVisibilityCss")) return;
+
+    const style = document.createElement("style");
+    style.id = "gbV329CostVisibilityCss";
+    style.textContent = `
+      #incoming #gbV327CostSummary,
+      #incoming .gb-cost-summary-v327,
+      #inventory #gbV327CostSummary,
+      #inventory .gb-cost-summary-v327,
+      #history #gbV327CostSummary,
+      #history .gb-cost-summary-v327{
+        display:none !important;
+      }
+
+      body:not(.gb-can-see-cost) #gbV327CostSummary,
+      body:not(.gb-can-see-cost) .gb-cost-summary-v327{
+        display:none !important;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function gbV329ApplyCostRoleClass(){
+    document.body.classList.toggle("gb-can-see-cost", gbV329CanSeeCost());
+  }
+
+  function gbV329Safety(){
+    gbV329ApplyCostRoleClass();
+    gbV329HideCostTextOutsideAdmin();
+    gbV329RemoveCostSummaryOutsideAllowedArea();
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    gbV329Safety();
+    setTimeout(gbV329Safety, 300);
+    setTimeout(gbV329Safety, 1000);
+  });
+
+  window.addEventListener("gb-role-ready", () => {
+    setTimeout(gbV329Safety, 200);
+  });
+
+  const oldRenderAllV329 = renderAll;
+  renderAll = function(){
+    oldRenderAllV329();
+    gbV329Safety();
+  };
+
+  window.gbCostVisibilityCheck = function(){
+    return {
+      version: window.GB_VERSION,
+      role: gbV329Role(),
+      canSeeCost: gbV329CanSeeCost(),
+      currentTab: typeof currentTab !== "undefined" ? currentTab : "",
+      activeAdminSubTab: document.querySelector(".admin-sub-tab.active")?.dataset?.adminTab || "",
+      costSummaryCount: document.querySelectorAll("#gbV327CostSummary, .gb-cost-summary-v327").length,
+      costSummaryInIncoming: !!document.querySelector("#incoming #gbV327CostSummary, #incoming .gb-cost-summary-v327"),
+      syncText: document.getElementById("syncStatusText")?.textContent
+    };
+  };
+})();
