@@ -5988,3 +5988,60 @@ window.GB_VERSION = "goldenbird-inventory-v3.0.1-firebase-duplicate-fix";
     }, 1200);
   });
 })();
+
+/* GoldenBird Inventory v3.0.3｜後台分頁分類修正＋同步診斷文字 */
+(function(){
+  function gbFixAdminSectionGroups(){
+    const adminContent = document.getElementById("adminContent");
+    if(!adminContent) return;
+
+    [...adminContent.children].forEach(section=>{
+      if(section.id === "adminSubTabs") return;
+      const text = (section.textContent || "").trim();
+
+      // 成本/報表/資料匯出優先歸到成本報表，避免被叫貨管理吃掉
+      if(text.includes("成本報表") || text.includes("資料匯出") || text.includes("匯出 Excel") || text.includes("本月叫貨成本") || text.includes("年叫貨成本")){
+        section.dataset.adminGroup = "costs";
+        return;
+      }
+
+      if(text.includes("品項管理") || text.includes("新增品項") || text.includes("不想再列入庫存的品項")){
+        section.dataset.adminGroup = "items";
+        return;
+      }
+
+      if(text.includes("叫貨管理") || text.includes("手動新增叫貨") || text.includes("叫貨紀錄")){
+        section.dataset.adminGroup = "orders";
+        return;
+      }
+    });
+
+    const current = localStorage.getItem("gbAdminSubTab") || "items";
+    if(typeof gbSwitchAdminSubTab === "function"){
+      gbSwitchAdminSubTab(current);
+    }
+  }
+
+  window.gbSyncDebugText = function(){
+    const result = typeof gbSyncDebug === "function" ? gbSyncDebug() : {
+      syncText: document.getElementById("syncStatusText")?.textContent,
+      firebaseReady: !!window.GB_FIREBASE?.ready,
+      authReady: !!window.GB_AUTH?.ready,
+      user: window.GB_AUTH?.user,
+      role: window.GB_AUTH?.role,
+      lastSyncError: window.lastSyncError || null
+    };
+    return JSON.stringify(result, null, 2);
+  };
+
+  document.addEventListener("DOMContentLoaded",()=>{
+    setTimeout(gbFixAdminSectionGroups, 300);
+    setTimeout(gbFixAdminSectionGroups, 1000);
+  });
+
+  const oldRenderAllV303 = renderAll;
+  renderAll = function(){
+    oldRenderAllV303();
+    gbFixAdminSectionGroups();
+  };
+})();
