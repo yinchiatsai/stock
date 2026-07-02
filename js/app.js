@@ -4215,3 +4215,163 @@ renderAll = function() {
     updateMobileScrollState();
   };
 })();
+
+/* GoldenBird Inventory v2.2.6｜品項新增/刪除按鈕事件修正 */
+(function(){
+  function bindItemManagementButtons(){
+    const addBtn = document.getElementById("addItemManageBtn");
+    if(addBtn){
+      addBtn.onclick = function(event){
+        event.preventDefault();
+        if(typeof addNewItemFromManage === "function"){
+          addNewItemFromManage();
+        }
+      };
+    }
+
+    const confirmDeleteBtn = document.getElementById("confirmDeleteItemBtn");
+    if(confirmDeleteBtn){
+      confirmDeleteBtn.onclick = function(event){
+        event.preventDefault();
+        if(typeof confirmDeleteItem === "function"){
+          confirmDeleteItem();
+        }
+      };
+    }
+
+    const cancelDeleteBtn = document.getElementById("cancelDeleteItemBtn");
+    if(cancelDeleteBtn){
+      cancelDeleteBtn.onclick = function(event){
+        event.preventDefault();
+        if(typeof closeModal === "function"){
+          closeModal("deleteItemModal");
+        }
+      };
+    }
+
+    document.querySelectorAll(".edit-item-btn").forEach(btn=>{
+      btn.onclick = () => editItem(btn.dataset.id);
+    });
+    document.querySelectorAll(".toggle-item-btn").forEach(btn=>{
+      btn.onclick = () => toggleItemDisabled(btn.dataset.id);
+    });
+    document.querySelectorAll(".delete-item-btn").forEach(btn=>{
+      btn.onclick = () => openDeleteItem(btn.dataset.id);
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded",()=>{
+    bindItemManagementButtons();
+    setTimeout(bindItemManagementButtons,300);
+    setTimeout(bindItemManagementButtons,1000);
+  });
+
+  const oldRenderAll = renderAll;
+  renderAll = function(){
+    oldRenderAll();
+    bindItemManagementButtons();
+  };
+
+  window.gbBindItemManagementButtons = bindItemManagementButtons;
+})();
+
+/* GoldenBird Inventory v2.2.7｜浮動回頂端 / 回庫存總覽按鈕 */
+(function(){
+  function ensureFloatingButtons(){
+    if(document.getElementById("gbFloatActions")) return;
+
+    const wrap = document.createElement("div");
+    wrap.id = "gbFloatActions";
+    wrap.innerHTML = `
+      <button id="gbHomeBtn" type="button" title="回庫存總覽">🏠</button>
+      <button id="gbTopBtn" type="button" title="回到最上方">▲</button>
+    `;
+    document.body.appendChild(wrap);
+
+    const style = document.createElement("style");
+    style.id = "gbFloatActionsCss";
+    style.textContent = `
+      #gbFloatActions{
+        position:fixed;
+        right:18px;
+        bottom:22px;
+        z-index:120;
+        display:flex;
+        flex-direction:column;
+        gap:8px;
+        opacity:0;
+        pointer-events:none;
+        transform:translateY(8px);
+        transition:opacity .2s ease, transform .2s ease;
+      }
+      #gbFloatActions.show{
+        opacity:1;
+        pointer-events:auto;
+        transform:translateY(0);
+      }
+      #gbFloatActions button{
+        width:44px;
+        height:44px;
+        border-radius:999px;
+        border:1px solid var(--line);
+        background:rgba(255,255,255,.92);
+        color:var(--text);
+        box-shadow:0 8px 20px rgba(0,0,0,.12);
+        font-weight:800;
+        font-size:16px;
+        cursor:pointer;
+      }
+      #gbFloatActions button:active{
+        transform:scale(.96);
+      }
+      @media(max-width:760px){
+        #gbFloatActions{
+          right:14px;
+          bottom:18px;
+        }
+        #gbFloatActions button{
+          width:42px;
+          height:42px;
+          font-size:15px;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+
+    document.getElementById("gbTopBtn").onclick = function(){
+      window.scrollTo({top:0, behavior:"smooth"});
+    };
+
+    document.getElementById("gbHomeBtn").onclick = function(){
+      if(typeof switchTab === "function") switchTab("overview");
+      setTimeout(()=>window.scrollTo({top:0, behavior:"smooth"}), 50);
+    };
+  }
+
+  function updateFloatingButtons(){
+    const wrap = document.getElementById("gbFloatActions");
+    if(!wrap) return;
+    wrap.classList.toggle("show", window.scrollY > 420);
+  }
+
+  function bindFloatingButtons(){
+    if(window.__gbFloatButtonsBound) return;
+    window.__gbFloatButtonsBound = true;
+    window.addEventListener("scroll", updateFloatingButtons, {passive:true});
+    window.addEventListener("resize", updateFloatingButtons);
+  }
+
+  document.addEventListener("DOMContentLoaded", function(){
+    ensureFloatingButtons();
+    bindFloatingButtons();
+    updateFloatingButtons();
+  });
+
+  const oldRenderAll = renderAll;
+  renderAll = function(){
+    oldRenderAll();
+    ensureFloatingButtons();
+    bindFloatingButtons();
+    updateFloatingButtons();
+  };
+})();
