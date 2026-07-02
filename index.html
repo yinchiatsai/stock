@@ -44,9 +44,8 @@
     <nav class="tabs">
       <button class="tab active" data-tab="overview">📦 庫存總覽</button>
       <button class="tab" data-tab="incoming">🚚 在途商品</button>
-      <button class="tab" data-tab="update">🛠 製程更新</button>
-      <button class="tab" data-tab="ocr">📷 AI辨識</button>
-        <button class="tab" data-tab="admin">🔐 管理後台</button>
+      <button class="tab" data-tab="history">📜 最近庫存異動</button>
+      <button class="tab" data-tab="admin">⚙️ 管理後台</button>
     </nav>
 
     <!-- 庫存總覽 -->
@@ -145,62 +144,6 @@
     </section>
 
     <!-- 管理後台 -->
-    
-<section id="ocr" class="tab-panel hidden">
-  <div class="section-title">
-    <h2>📷 AI 採購辨識</h2>
-    <span class="badge info">免費 OCR 測試版</span>
-  </div>
-
-  <div class="card">
-    <h3>上傳叫貨截圖</h3>
-    <p class="note">支援 1688 / 淘寶 / 蝦皮 / 廠商截圖。第一版會先辨識文字並抓出品名、數量、單價，確認後加入在途商品。</p>
-
-    <div class="field">
-      <label>來源</label>
-      <input id="ocrSourceInput" type="text" placeholder="例如：1688、淘寶、蝦皮、廠商" />
-    </div>
-
-    <div class="field">
-      <label>叫貨日期</label>
-      <input id="ocrDateInput" type="date" />
-    </div>
-
-    <div class="field">
-      <label>上傳圖片</label>
-      <input id="ocrImageInput" type="file" accept="image/*" />
-    </div>
-
-    <div id="ocrImagePreview" class="ocr-preview"></div>
-
-    <div class="modal-actions">
-      <button id="runOcrBtn" type="button">開始辨識</button>
-      <button id="clearOcrBtn" type="button" class="secondary">清除</button>
-    </div>
-
-    <div id="ocrStatus" class="note">尚未辨識。</div>
-  </div>
-
-  <div class="card">
-    <h3>辨識文字</h3>
-    <textarea id="ocrTextOutput" rows="8" placeholder="辨識後的文字會顯示在這裡，也可以手動修正。"></textarea>
-    <div class="modal-actions">
-      <button id="parseOcrTextBtn" type="button">解析文字成品項</button>
-    </div>
-  </div>
-
-  <div class="section-title">
-    <h2>辨識結果</h2>
-    <span class="badge warn">請確認後再加入</span>
-  </div>
-
-  <div class="card">
-    <div id="ocrResultList" class="ocr-result-list">尚無辨識結果。</div>
-    <div class="modal-actions">
-      <button id="confirmOcrOrdersBtn" type="button">確認加入在途商品</button>
-    </div>
-  </div>
-</section>
 
 <section id="admin" class="tab-panel hidden">
       <div id="adminLocked" class="card locked">
@@ -215,13 +158,6 @@
             <span class="badge info">上傳截圖或手動新增</span>
           </div>
           <div class="order-input-grid">
-        <div class="card order-card">
-          <h3>叫貨截圖上傳</h3>
-          <div class="form-grid">
-            <div class="field">
-              <label>目前叫貨人</label>
-              <input id="orderPersonDisplay" value="老闆" readonly />
-            </div>
             <div class="field full">
               <label>上傳截圖</label>
               <input id="orderScreenshotInput" type="file" accept="image/*" />
@@ -560,7 +496,6 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
   <script src="js/firebase-auth.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
