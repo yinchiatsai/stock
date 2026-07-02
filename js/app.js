@@ -1,3 +1,14 @@
+
+/* GoldenBird Inventory v3.0.5｜Runtime 基礎修正 */
+function escapeHtml(value){
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 const STORAGE_KEY = "goldenbird_inventory_demo_v3";
 const GB_SYNC_DOC_PATH = "system/main";
 const ROLE_KEY = "goldenbird_role_lock_v1";
@@ -6157,4 +6168,480 @@ window.GB_VERSION = "goldenbird-inventory-v3.0.1-firebase-duplicate-fix";
     applyAdminTabsSafeCss();
     ensureAdminTabsSafe();
   };
+})();
+
+
+/* GoldenBird Inventory v3.0.5｜缺失元素安全事件綁定修正 */
+(function(){
+  function safeBind(id, eventName, handler){
+    const el = document.getElementById(id);
+    if(!el) return false;
+    el.addEventListener(eventName, handler);
+    return true;
+  }
+
+  // 覆蓋容易因元素不存在而中斷的 bindEvents
+  if(typeof bindEvents === "function"){
+    const oldBindEvents = bindEvents;
+    bindEvents = function(){
+      try{
+        oldBindEvents();
+      }catch(error){
+        console.warn("bindEvents safe fallback:", error);
+      }
+
+      // 重要按鈕補綁，存在才綁，不存在就略過
+      const addOrderBtn = document.getElementById("addManualOrderBtn")
+        || [...document.querySelectorAll("button")].find(btn => (btn.textContent || "").includes("新增叫貨紀錄"));
+      if(addOrderBtn && typeof addManualOrder === "function"){
+        addOrderBtn.onclick = event => {
+          event.preventDefault();
+          addManualOrder();
+        };
+      }
+
+      const addItemBtn = document.getElementById("addItemManageBtn");
+      if(addItemBtn && typeof addNewItemFromManage === "function"){
+        addItemBtn.onclick = event => {
+          event.preventDefault();
+          addNewItemFromManage();
+        };
+      }
+
+      const exportBtn = document.getElementById("exportExcelBtn");
+      if(exportBtn && typeof exportExcel === "function"){
+        exportBtn.onclick = event => {
+          event.preventDefault();
+          exportExcel();
+        };
+      }
+
+      const clearHistoryBtn = document.getElementById("clearHistoryBtn");
+      if(clearHistoryBtn && typeof clearHistoryRecords === "function"){
+        clearHistoryBtn.onclick = event => {
+          event.preventDefault();
+          clearHistoryRecords();
+        };
+      }
+    };
+    window.bindEvents = bindEvents;
+  }
+
+  // 避免 renderIncoming / renderHistoryPage 因 escapeHtml 問題再中斷
+  const oldRenderAllV305 = renderAll;
+  renderAll = function(){
+    try{
+      oldRenderAllV305();
+    }catch(error){
+      console.error("renderAll runtime error:", error);
+      const sync = document.getElementById("syncStatusText");
+      if(sync && sync.textContent !== "已同步"){
+        sync.textContent = "頁面渲染異常";
+        sync.classList.remove("ok","warn");
+        sync.classList.add("bad");
+      }
+    }
+  };
+
+  document.addEventListener("DOMContentLoaded",()=>{
+    try{
+      if(typeof bindEvents === "function") bindEvents();
+    }catch(error){
+      console.warn("bindEvents DOMContentLoaded fallback:", error);
+    }
+  });
+
+  window.gbRuntimeCheck = function(){
+    return {
+      hasEscapeHtml: typeof escapeHtml === "function",
+      hasBindEvents: typeof bindEvents === "function",
+      hasRenderAll: typeof renderAll === "function",
+      syncText: document.getElementById("syncStatusText")?.textContent,
+      incomingRows: document.querySelectorAll("#incomingTable tr").length,
+      historyRows: document.querySelectorAll("#historyPageList .history-row").length,
+      lastSyncError: window.lastSyncError || null
+    };
+  };
+})();
+
+/* GoldenBird Inventory v3.0.6｜分頁聯動與同步穩定修正 */
+(function(){
+  window.GB_VERSION = "goldenbird-inventory-v3.0.6-stability-fix";
+
+  function gbSetSyncStatus(text, type){
+    const el = document.getElementById("syncStatusText");
+    if(!el) return;
+    el.textContent = text;
+    el.classList.remove("ok","warn","bad");
+    if(type) el.classList.add(type);
+  }
+
+  function gbEnsureDataShape(){
+    if(typeof data === "undefined") return;
+    data.items = Array.isArray(data.items) ? data.items : [];
+    data.orders = Array.isArray(data.orders) ? data.orders : [];
+    data.history = Array.isArray(data.history) ? data.history : [];
+    data.mappings = Array.isArray(data.mappings) ? data.mappings : [];
+  }
+
+  function gbSafeCall(name){
+    try{
+      const fn = window[name] || (typeof globalThis !== "undefined" ? globalThis[name] : null);
+      if(typeof fn === "function") fn();
+    }catch(error){
+      console.warn(`${name} failed`, error);
+    }
+  }
+
+  function gbRenderLinkedViews(){
+    gbEnsureDataShape();
+
+    // 各分頁資料聯動：只呼叫存在的渲染函式，避免某個區塊錯誤讓全部中斷
+    [
+      "renderInventory",
+      "renderIncoming",
+      "renderAdmin",
+      "renderAdminOrders",
+      "renderCostReport",
+      "renderItemManageTable",
+      "renderHistoryPage",
+      "renderStockHistory",
+      "ensureExcelExportButton",
+      "setManualOrderDefaultDate"
+    ].forEach(gbSafeCall);
+
+    gbRefreshCategoryFiltersV306();
+    gbBindImportantButtonsV306();
+    gbFixMobileV306();
+  }
+
+  function gbRefreshCategoryFiltersV306(){
+    if(typeof data === "undefined" || !Array.isArray(data.items)) return;
+
+    const categories = [...new Set(data.items.map(item => String(item.category || "").trim()).filter(Boolean))].sort();
+
+    function fillSelect(id, includeAll){
+      const select = document.getElementById(id);
+      if(!select) return;
+
+      const current = select.value;
+      select.innerHTML = (includeAll ? '<option value="all">全部分類</option>' : '') +
+        categories.map(category => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`).join("");
+
+      if([...select.options].some(option => option.value === current)){
+        select.value = current;
+      }else if(includeAll){
+        select.value = "all";
+      }
+    }
+
+    fillSelect("categoryFilter", true);
+    fillSelect("itemManageCategoryFilter", true);
+    fillSelect("newItemCategoryManage", false);
+  }
+
+  function gbBindImportantButtonsV306(){
+    const addOrderBtn = document.getElementById("addManualOrderBtn")
+      || [...document.querySelectorAll("button")].find(btn => (btn.textContent || "").includes("新增叫貨紀錄"));
+    if(addOrderBtn && typeof addManualOrder === "function"){
+      addOrderBtn.onclick = event => {
+        event.preventDefault();
+        addManualOrder();
+      };
+    }
+
+    const addItemBtn = document.getElementById("addItemManageBtn");
+    if(addItemBtn && typeof addNewItemFromManage === "function"){
+      addItemBtn.onclick = event => {
+        event.preventDefault();
+        addNewItemFromManage();
+      };
+    }
+
+    const exportBtn = document.getElementById("exportExcelBtn");
+    if(exportBtn && typeof exportExcel === "function"){
+      exportBtn.onclick = event => {
+        event.preventDefault();
+        exportExcel();
+      };
+    }
+
+    const clearHistoryBtn = document.getElementById("clearHistoryBtn");
+    if(clearHistoryBtn && typeof clearHistoryRecords === "function"){
+      clearHistoryBtn.onclick = event => {
+        event.preventDefault();
+        clearHistoryRecords();
+      };
+    }
+
+    document.querySelectorAll(".receive-btn").forEach(btn=>{
+      btn.onclick = () => {
+        if(typeof receiveOrder === "function") receiveOrder(btn.dataset.id);
+      };
+    });
+  }
+
+  function gbFixMobileV306(){
+    if(document.getElementById("gbV306MobileCss")) return;
+
+    const style = document.createElement("style");
+    style.id = "gbV306MobileCss";
+    style.textContent = `
+      @media(max-width:760px){
+        header, header .header-inner{
+          position:relative !important;
+          top:auto !important;
+          z-index:auto !important;
+        }
+
+        main .tabs{
+          display:grid !important;
+          grid-template-columns:1fr 1fr !important;
+          gap:8px !important;
+          padding:8px 12px !important;
+        }
+
+        main .tabs .tab{
+          width:100% !important;
+          min-width:0 !important;
+          white-space:nowrap !important;
+          font-size:15px !important;
+          padding:10px 8px !important;
+        }
+
+        body.gb-mobile-scrolled main .tabs{
+          position:sticky !important;
+          top:0 !important;
+          z-index:100 !important;
+          background:rgba(248,247,243,.96) !important;
+          backdrop-filter:blur(8px) !important;
+          border-bottom:1px solid var(--line) !important;
+          box-shadow:0 6px 16px rgba(0,0,0,.05);
+        }
+
+        body.gb-mobile-scrolled main .tabs .tab[data-tab="history"],
+        body.gb-mobile-scrolled main .tabs .tab[data-tab="admin"]{
+          display:none !important;
+        }
+
+        .admin-sub-tabs{
+          grid-template-columns:1fr !important;
+          position:relative !important;
+          top:auto !important;
+        }
+
+        #incoming .table-scroll{
+          overflow-x:auto !important;
+          -webkit-overflow-scrolling:touch;
+        }
+
+        #incoming table{
+          min-width:820px;
+        }
+
+        .role-box:not(.mobile-open){
+          display:none !important;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+
+    if(!window.__gbV306MobileScrollBound){
+      window.__gbV306MobileScrollBound = true;
+      window.addEventListener("scroll", () => {
+        if(window.innerWidth <= 760){
+          document.body.classList.toggle("gb-mobile-scrolled", window.scrollY > 120);
+        }else{
+          document.body.classList.remove("gb-mobile-scrolled");
+        }
+      }, {passive:true});
+    }
+  }
+
+  function gbApplySnapshotV306(snapshot){
+    try{
+      if(!snapshot.exists){
+        return false;
+      }
+
+      const raw = snapshot.data();
+      const remote = typeof normalizeRemoteData === "function" ? normalizeRemoteData(raw) : (raw?.payload || raw);
+
+      if(!remote){
+        window.lastSyncError = {
+          stage:"applySnapshot",
+          code:"empty-data",
+          message:"Firestore 文件存在，但資料格式為空。",
+          time:new Date().toISOString()
+        };
+        gbSetSyncStatus("同步失敗：資料格式", "bad");
+        return false;
+      }
+
+      gbIsApplyingRemote = true;
+      data = remote;
+      gbEnsureDataShape();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      gbRemoteReady = true;
+      gbIsApplyingRemote = false;
+
+      gbSetSyncStatus("已同步", "ok");
+      gbRenderLinkedViews();
+      return true;
+    }catch(error){
+      gbIsApplyingRemote = false;
+      window.lastSyncError = {
+        stage:"applySnapshot",
+        code:error?.code || "",
+        message:error?.message || String(error),
+        time:new Date().toISOString()
+      };
+      console.error("GB apply snapshot failed:", window.lastSyncError, error);
+      gbSetSyncStatus("同步失敗：畫面渲染", "bad");
+      return false;
+    }
+  }
+
+  function gbStartRemoteSyncV306(){
+    try{
+      if(typeof getMainDocRef !== "function"){
+        window.lastSyncError = {stage:"getMainDocRef", code:"missing-function", message:"getMainDocRef 不存在", time:new Date().toISOString()};
+        gbSetSyncStatus("同步未啟動", "bad");
+        return;
+      }
+
+      const ref = getMainDocRef();
+      if(!ref){
+        window.lastSyncError = {stage:"getMainDocRef", code:"no-ref", message:"無法取得 Firestore 文件路徑", time:new Date().toISOString()};
+        gbSetSyncStatus("同步未啟動", "bad");
+        return;
+      }
+
+      if(typeof gbUnsubscribeMainDoc !== "undefined" && gbUnsubscribeMainDoc){
+        try{ gbUnsubscribeMainDoc(); }catch(error){ console.warn(error); }
+      }
+
+      window.lastSyncError = null;
+      gbSetSyncStatus("同步連線中…", "warn");
+
+      ref.get()
+        .then(snapshot => {
+          if(snapshot.exists){
+            gbApplySnapshotV306(snapshot);
+            return null;
+          }
+
+          return ref.set({
+            payload: data,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            updatedBy: window.GB_AUTH?.user?.email || "unknown",
+            version: window.GB_VERSION || "v3.0.6"
+          }, { merge:true }).then(()=>{
+            gbRemoteReady = true;
+            gbSetSyncStatus("已同步", "ok");
+            gbRenderLinkedViews();
+          });
+        })
+        .then(()=>{
+          gbUnsubscribeMainDoc = ref.onSnapshot(snapshot=>{
+            if(snapshot.exists) gbApplySnapshotV306(snapshot);
+          }, error=>{
+            window.lastSyncError = {
+              stage:"onSnapshot",
+              code:error?.code || "",
+              message:error?.message || String(error),
+              time:new Date().toISOString()
+            };
+            console.error("GB onSnapshot failed:", window.lastSyncError, error);
+            gbSetSyncStatus(error?.code === "permission-denied" ? "同步失敗：權限不足" : "同步失敗", "bad");
+          });
+        })
+        .catch(error=>{
+          window.lastSyncError = {
+            stage:"initial get/set",
+            code:error?.code || "",
+            message:error?.message || String(error),
+            time:new Date().toISOString()
+          };
+          console.error("GB initial sync failed:", window.lastSyncError, error);
+          gbSetSyncStatus(error?.code === "permission-denied" ? "同步失敗：權限不足" : "同步失敗", "bad");
+        });
+    }catch(error){
+      window.lastSyncError = {
+        stage:"startRemoteSync",
+        code:error?.code || "",
+        message:error?.message || String(error),
+        time:new Date().toISOString()
+      };
+      console.error("GB start sync fatal:", window.lastSyncError, error);
+      gbSetSyncStatus("同步失敗", "bad");
+    }
+  }
+
+  window.startRemoteSync = gbStartRemoteSyncV306;
+  startRemoteSync = gbStartRemoteSyncV306;
+
+  window.gbSyncDebugText = function(){
+    return JSON.stringify({
+      version: window.GB_VERSION,
+      syncText: document.getElementById("syncStatusText")?.textContent,
+      firebaseReady: !!window.GB_FIREBASE?.ready,
+      authReady: !!window.GB_AUTH?.ready,
+      user: window.GB_AUTH?.user || null,
+      role: window.GB_AUTH?.role || null,
+      hasDb: !!window.GB_FIREBASE?.db,
+      hasStartRemoteSync: typeof startRemoteSync,
+      itemCount: Array.isArray(data?.items) ? data.items.length : null,
+      orderCount: Array.isArray(data?.orders) ? data.orders.length : null,
+      historyCount: Array.isArray(data?.history) ? data.history.length : null,
+      lastSyncError: window.lastSyncError || null
+    }, null, 2);
+  };
+
+  window.gbLinkageCheck = function(){
+    return {
+      version: window.GB_VERSION,
+      syncText: document.getElementById("syncStatusText")?.textContent,
+      items: data?.items?.length || 0,
+      orders: data?.orders?.length || 0,
+      history: data?.history?.length || 0,
+      inventoryRows: document.querySelectorAll("#inventoryGrid .inventory-row, #inventoryGrid .inventory-card").length,
+      incomingRows: document.querySelectorAll("#incomingTable tr").length,
+      adminOrderRows: document.querySelectorAll("#adminOrdersTable tr").length,
+      itemManageRows: document.querySelectorAll("#itemManageTable tr").length,
+      historyRows: document.querySelectorAll("#historyPageList .history-row").length,
+      mobile: window.innerWidth <= 760,
+      lastSyncError: window.lastSyncError || null
+    };
+  };
+
+  const oldRenderAllV306 = renderAll;
+  renderAll = function(){
+    try{
+      oldRenderAllV306();
+    }catch(error){
+      console.warn("old renderAll failed, fallback render linked views:", error);
+    }
+    gbRenderLinkedViews();
+  };
+
+  document.addEventListener("DOMContentLoaded",()=>{
+    gbEnsureDataShape();
+    gbBindImportantButtonsV306();
+    gbFixMobileV306();
+
+    setTimeout(()=>{
+      gbRenderLinkedViews();
+      if(window.GB_FIREBASE?.ready && window.GB_AUTH?.ready && window.GB_AUTH?.user){
+        gbStartRemoteSyncV306();
+      }
+    }, 1200);
+  });
+
+  window.addEventListener("gb-role-ready", ()=>{
+    setTimeout(()=>{
+      gbRenderLinkedViews();
+      gbStartRemoteSyncV306();
+    }, 300);
+  });
 })();
