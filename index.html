@@ -160,8 +160,23 @@
               <input id="manualOrderQty" type="number" min="1" placeholder="例如：100" />
             </div>
             <div class="field">
-              <label>成本</label>
+              <label>商品成本</label>
               <input id="manualOrderCost" type="number" min="0" placeholder="例如：1280" />
+            </div>
+            <div class="field">
+              <label>運費</label>
+              <input id="manualOrderFreight" type="number" min="0" placeholder="例如：80" />
+            </div>
+            <div class="field">
+              <label>幣別</label>
+              <select id="manualOrderCurrency">
+                <option value="TWD">台幣 TWD</option>
+                <option value="CNY">人民幣 CNY</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>匯率 / 換算</label>
+              <input id="manualOrderFxPreview" readonly placeholder="台幣免換算" />
             </div>
             <div class="field">
               <label>來源</label>
