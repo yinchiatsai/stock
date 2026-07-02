@@ -3881,3 +3881,132 @@ window.gbDiagnostic = function() {
     itemManageTableFound: !!document.getElementById("itemManageTable")
   };
 };
+
+
+/* GoldenBird Inventory v2.2.2｜手機版固定頁籤與更新時間顯示 */
+window.GB_VERSION = "goldenbird-inventory-v2.2.2-mobile-tabs-update-time";
+
+function gbApplyMobileTabAndUpdateTimeFix() {
+  if (document.getElementById("gbV222MobileStyles")) return;
+
+  const style = document.createElement("style");
+  style.id = "gbV222MobileStyles";
+  style.textContent = `
+    @media (max-width: 760px) {
+      /* 手機下滑時，固定常用的「庫存總覽 / 在途商品」 */
+      main .tabs {
+        position: sticky;
+        top: 0;
+        z-index: 80;
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 8px !important;
+        padding: 8px 12px !important;
+        background: rgba(248, 247, 243, .96);
+        backdrop-filter: blur(8px);
+        border-bottom: 1px solid var(--line);
+      }
+
+      main .tabs .tab {
+        min-width: 0 !important;
+        width: 100% !important;
+        padding: 10px 8px !important;
+        font-size: 15px !important;
+        white-space: nowrap;
+      }
+
+      /* 手機固定區只顯示最常用兩個，最近異動/後台仍可從頁面上方進入 */
+      main .tabs .tab[data-tab="history"],
+      main .tabs .tab[data-tab="admin"] {
+        display: none !important;
+      }
+
+      /* 小卡片更新標籤完整顯示：更新人員 + 時間 */
+      #inventoryGrid .meta-tags {
+        overflow: visible !important;
+        white-space: normal !important;
+        line-height: 1.45 !important;
+      }
+
+      #inventoryGrid .meta-tags .mobile-updater-only {
+        max-width: none !important;
+        width: auto !important;
+        white-space: nowrap !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        padding: 3px 8px !important;
+        font-size: 11.5px !important;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function gbBuildMobileUpdaterLabelV222() {
+  document.querySelectorAll("#inventoryGrid .meta-tags").forEach(meta => {
+    const oldMobile = meta.querySelector(".mobile-updater-only");
+    if (oldMobile) oldMobile.remove();
+
+    const last = [...meta.querySelectorAll(".meta-tag")].find(tag => (tag.textContent || "").includes("最後更新"));
+    if (!last) return;
+
+    const raw = last.textContent || "";
+    const nameMatch = raw.match(/最後更新[:：]\s*([^｜]+)/);
+    const timeMatch = raw.match(/(\d{4})\/(\d{2})\/(\d{2})\s+(\d{2}:\d{2})/);
+
+    const updater = nameMatch ? nameMatch[1].trim() : "";
+    const shortTime = timeMatch ? `${timeMatch[2]}/${timeMatch[3]} ${timeMatch[4]}` : "";
+
+    if (!updater) return;
+
+    const mobile = document.createElement("span");
+    mobile.className = "meta-tag mobile-updater-only";
+    mobile.textContent = shortTime ? `${updater} ${shortTime}` : updater;
+    meta.appendChild(mobile);
+  });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  gbApplyMobileTabAndUpdateTimeFix();
+  setTimeout(gbBuildMobileUpdaterLabelV222, 300);
+  setTimeout(gbBuildMobileUpdaterLabelV222, 1000);
+});
+
+const gbV222RenderAll = renderAll;
+renderAll = function() {
+  gbV222RenderAll();
+  gbApplyMobileTabAndUpdateTimeFix();
+  gbBuildMobileUpdaterLabelV222();
+};
+
+/* GoldenBird Inventory v2.2.3｜叫貨表單 UI 修正 */
+(function(){
+  function applyOrderFormFix(){
+    if(document.getElementById("gbV223OrderCss")) return;
+    const s=document.createElement("style");
+    s.id="gbV223OrderCss";
+    s.textContent=`
+    .order-form input[type="date"],
+    input[type="date"]{
+      width:100%;
+      min-width:0 !important;
+      box-sizing:border-box;
+    }
+    @media (max-width:760px){
+      .order-form,
+      .manual-order-grid{
+        display:grid;
+        grid-template-columns:1fr !important;
+        gap:12px;
+      }
+      .order-form button,
+      .manual-order-grid button{
+        width:100%;
+      }
+    }`;
+    document.head.appendChild(s);
+  }
+  document.addEventListener("DOMContentLoaded",applyOrderFormFix);
+  const _r=renderAll;
+  renderAll=function(){_r();applyOrderFormFix();}
+})();
