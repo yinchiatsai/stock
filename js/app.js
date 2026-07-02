@@ -6761,3 +6761,233 @@ window.GB_VERSION = "goldenbird-inventory-v3.0.1-firebase-duplicate-fix";
     };
   };
 })();
+
+/* GoldenBird Inventory v3.0.8｜手機 UI 微調 */
+(function(){
+  function applyV308MobileUiFix(){
+    if(document.getElementById("gbV308MobileUiCss")) return;
+
+    const style = document.createElement("style");
+    style.id = "gbV308MobileUiCss";
+    style.textContent = `
+      /* 3. 標籤選取狀態：改淡底深字，避免白字不明顯 */
+      .tab.active,
+      .admin-sub-tab.active{
+        background:#e8f3f4 !important;
+        color:var(--main) !important;
+        border-color:#b9d5d9 !important;
+        font-weight:900 !important;
+        text-shadow:none !important;
+        box-shadow:inset 0 0 0 2px rgba(62,96,102,.10) !important;
+      }
+
+      .tab.active *,
+      .admin-sub-tab.active *{
+        color:var(--main) !important;
+      }
+
+      /* 2. 浮動按鈕內容置中 */
+      #gbFloatActions button,
+      #gbHomeBtn,
+      #gbTopBtn{
+        display:flex !important;
+        align-items:center !important;
+        justify-content:center !important;
+        line-height:1 !important;
+        padding:0 !important;
+        text-align:center !important;
+      }
+
+      #gbHomeBtn{
+        font-size:20px !important;
+      }
+
+      #gbTopBtn{
+        font-size:17px !important;
+      }
+
+      /* 1. 日期欄位避免突出 */
+      input[type="date"],
+      #manualOrderDate{
+        width:100% !important;
+        max-width:100% !important;
+        min-width:0 !important;
+        box-sizing:border-box !important;
+      }
+
+      @media(max-width:760px){
+        .field,
+        .form-grid > *,
+        .manual-order-grid > *,
+        .order-form > *{
+          min-width:0 !important;
+          max-width:100% !important;
+          box-sizing:border-box !important;
+        }
+
+        input,
+        select,
+        textarea,
+        button{
+          max-width:100% !important;
+          box-sizing:border-box !important;
+        }
+
+        #manualOrderDate{
+          display:block !important;
+          width:100% !important;
+          min-width:0 !important;
+        }
+
+        /* 手機版在途商品：精簡列，接近庫存總覽，不做大卡片 */
+        #incoming .table-scroll{
+          overflow-x:visible !important;
+        }
+
+        #incoming table{
+          width:100% !important;
+          min-width:0 !important;
+          border-collapse:separate !important;
+          border-spacing:0 8px !important;
+        }
+
+        #incoming table thead{
+          display:none !important;
+        }
+
+        #incomingTable tr{
+          display:grid !important;
+          grid-template-columns:1fr auto;
+          grid-template-areas:
+            "name status"
+            "meta meta"
+            "action action";
+          gap:8px 10px !important;
+          background:#fff !important;
+          border:1px solid var(--line) !important;
+          border-radius:16px !important;
+          padding:10px 12px !important;
+          margin-bottom:8px !important;
+          box-shadow:0 3px 10px rgba(0,0,0,.035) !important;
+        }
+
+        #incomingTable td{
+          display:block !important;
+          padding:0 !important;
+          border:0 !important;
+          white-space:normal !important;
+          min-width:0 !important;
+        }
+
+        #incomingTable td::before{
+          content:none !important;
+        }
+
+        /* 欄位順序：日期、品項、叫貨數、已到貨、剩餘、叫貨人、狀態、本次到貨、操作 */
+        #incomingTable td:nth-child(1){
+          display:none !important;
+        }
+
+        #incomingTable td:nth-child(2){
+          grid-area:name;
+          font-weight:900 !important;
+          color:var(--text);
+          font-size:16px;
+          line-height:1.35;
+        }
+
+        #incomingTable td:nth-child(7){
+          grid-area:status;
+          justify-self:end;
+          align-self:start;
+        }
+
+        #incomingTable td:nth-child(3),
+        #incomingTable td:nth-child(4),
+        #incomingTable td:nth-child(5),
+        #incomingTable td:nth-child(6){
+          grid-area:meta;
+          display:inline-flex !important;
+          align-items:center;
+          color:var(--muted);
+          font-size:13px;
+          font-weight:800;
+        }
+
+        #incomingTable td:nth-child(3)::before{ content:"叫 "; color:var(--muted); }
+        #incomingTable td:nth-child(4)::before{ content:"已到 "; color:var(--muted); }
+        #incomingTable td:nth-child(5)::before{ content:"剩 "; color:var(--muted); }
+        #incomingTable td:nth-child(6)::before{ content:"人 "; color:var(--muted); }
+
+        #incomingTable td:nth-child(3){
+          margin-top:26px;
+        }
+
+        #incomingTable td:nth-child(4){
+          margin-top:26px;
+          margin-left:58px;
+        }
+
+        #incomingTable td:nth-child(5){
+          margin-top:26px;
+          margin-left:122px;
+        }
+
+        #incomingTable td:nth-child(6){
+          margin-top:26px;
+          margin-left:188px;
+        }
+
+        #incomingTable td:nth-child(8),
+        #incomingTable td:nth-child(9){
+          grid-area:action;
+          margin-top:30px;
+        }
+
+        #incomingTable td:nth-child(8){
+          width:48%;
+        }
+
+        #incomingTable td:nth-child(9){
+          width:48%;
+          justify-self:end;
+          margin-left:auto;
+        }
+
+        #incomingTable .receive-input{
+          width:100% !important;
+          height:42px !important;
+          min-width:0 !important;
+          border-radius:14px !important;
+        }
+
+        #incomingTable .receive-btn{
+          width:100% !important;
+          height:42px !important;
+          min-width:0 !important;
+          border-radius:14px !important;
+          white-space:nowrap !important;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  document.addEventListener("DOMContentLoaded", applyV308MobileUiFix);
+
+  const oldRenderAllV308 = renderAll;
+  renderAll = function(){
+    oldRenderAllV308();
+    applyV308MobileUiFix();
+  };
+
+  window.gbMobileUiCheck = function(){
+    return {
+      version: window.GB_VERSION,
+      hasV308Css: !!document.getElementById("gbV308MobileUiCss"),
+      mobile: window.innerWidth <= 760,
+      activeTabs: [...document.querySelectorAll(".tab.active,.admin-sub-tab.active")].map(el => el.textContent.trim()),
+      incomingRows: document.querySelectorAll("#incomingTable tr").length
+    };
+  };
+})();
