@@ -9685,3 +9685,673 @@ window.GB_VERSION = "goldenbird-inventory-v3.0.1-firebase-duplicate-fix";
     };
   };
 })();
+
+/* GoldenBird Inventory v3.3.0｜成本報表月份篩選＋叫貨紀錄欄位修正 */
+(function(){
+  window.GB_VERSION = "goldenbird-inventory-v3.3.0-monthly-cost-report";
+
+  function gbV330Num(value){
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function gbV330Money(value){
+    return `NT$ ${Math.round(gbV330Num(value)).toLocaleString("zh-TW")}`;
+  }
+
+  function gbV330Escape(value){
+    if(typeof escapeHtml === "function") return escapeHtml(value);
+    return String(value ?? "")
+      .replaceAll("&","&amp;")
+      .replaceAll("<","&lt;")
+      .replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;")
+      .replaceAll("'","&#039;");
+  }
+
+  function gbV330OrderMonth(order){
+    const date = String(order.date || "");
+    return date.length >= 7 ? date.slice(0,7) : "";
+  }
+
+  function gbV330GetSelectedMonth(){
+    return localStorage.getItem("gbCostReportMonth") || "all";
+  }
+
+  function gbV330SetSelectedMonth(value){
+    localStorage.setItem("gbCostReportMonth", value || "all");
+  }
+
+  function gbV330Months(){
+    const months = [...new Set((data.orders || []).map(gbV330OrderMonth).filter(Boolean))];
+    months.sort((a,b)=>b.localeCompare(a));
+    return months;
+  }
+
+  function gbV330FilteredOrders(){
+    const month = gbV330GetSelectedMonth();
+    const orders = data.orders || [];
+    if(month === "all") return orders;
+    return orders.filter(order => gbV330OrderMonth(order) === month);
+  }
+
+  function gbV330Item(order){
+    if(typeof getItem === "function") return getItem(order.itemId);
+    return (data.items || []).find(item => item.id === order.itemId) || null;
+  }
+
+  function gbV330Qty(order){
+    return gbV330Num(order.qty);
+  }
+
+  function gbV330ProductSubtotalTwd(order){
+    if(order.productCost !== undefined) return gbV330Num(order.productCost);
+    if(order.costMode === "unit_price_times_qty_plus_freight"){
+      const unit = gbV330Num(order.unitCostOriginal ?? order.originalCost ?? order.productUnitCost ?? 0);
+      const qty = gbV330Qty(order);
+      const rate = gbV330Num(order.fxRate) || 1;
+      return Math.round(unit * qty * rate);
+    }
+    return gbV330Num(order.cost);
+  }
+
+  function gbV330FreightTwd(order){
+    if(order.freight !== undefined) return gbV330Num(order.freight);
+    const rate = gbV330Num(order.fxRate) || 1;
+    return Math.round(gbV330Num(order.originalFreight) * rate);
+  }
+
+  function gbV330TotalCostTwd(order){
+    if(order.costMode === "unit_price_times_qty_plus_freight"){
+      if(order.cost !== undefined) return gbV330Num(order.cost);
+      return gbV330ProductSubtotalTwd(order) + gbV330FreightTwd(order);
+    }
+    if(order.originalTotal !== undefined){
+      return Math.round(gbV330Num(order.originalTotal) * (gbV330Num(order.fxRate) || 1));
+    }
+    return gbV330Num(order.cost);
+  }
+
+  function gbV330BuildCostRows(orders = gbV330FilteredOrders()){
+    const itemMap = new Map();
+
+    orders.forEach(order=>{
+      const item = gbV330Item(order);
+      const key = order.itemId || order.deletedItemName || order.itemName || "unknown";
+      if(!itemMap.has(key)){
+        itemMap.set(key, {
+          itemId: key,
+          itemName: item?.name || order.deletedItemName || order.itemName || "已刪除品項",
+          category: item?.category || "",
+          totalQty: 0,
+          productTotal: 0,
+          freightTotal: 0,
+          totalCost: 0
+        });
+      }
+
+      const row = itemMap.get(key);
+      row.totalQty += gbV330Qty(order);
+      row.productTotal += gbV330ProductSubtotalTwd(order);
+      row.freightTotal += gbV330FreightTwd(order);
+      row.totalCost += gbV330TotalCostTwd(order);
+    });
+
+    return [...itemMap.values()].sort((a,b)=>b.totalCost-a.totalCost);
+  }
+
+  function gbV330EnsureMonthFilter(){
+    const admin = document.getElementById("admin");
+    if(!admin) return null;
+
+    let box = document.getElementById("gbCostMonthFilter");
+    if(!box){
+      box = document.createElement("div");
+      box.id = "gbCostMonthFilter";
+      box.className = "gb-cost-month-filter";
+      box.innerHTML = `
+        <label for="gbCostMonthSelect">叫貨月份</label>
+        <select id="gbCostMonthSelect"></select>
+      `;
+
+      const costHeading = [...admin.querySelectorAll("h2,h3,.section-title,.card-title")]
+        .find(el => (el.textContent || "").includes("成本"));
+      const anchor = costHeading?.closest(".card,.panel,section") || costHeading || admin;
+      anchor.insertAdjacentElement("afterend", box);
+    }
+
+    const select = box.querySelector("#gbCostMonthSelect");
+    const current = gbV330GetSelectedMonth();
+    const months = gbV330Months();
+    select.innerHTML = `<option value="all">全部月份</option>` + months.map(month=>`<option value="${month}">${month}</option>`).join("");
+    select.value = months.includes(current) ? current : "all";
+
+    if(select.dataset.gbV330Bound !== "true"){
+      select.addEventListener("change", ()=>{
+        gbV330SetSelectedMonth(select.value);
+        gbV330RenderCostReport();
+      });
+      select.dataset.gbV330Bound = "true";
+    }
+
+    return box;
+  }
+
+  function gbV330RenderCostReport(){
+    if(!gbV329CanSeeCostSafe() || !gbV330IsAdminCostPage()) {
+      document.querySelectorAll("#gbCostMonthFilter,#gbV330CostReport").forEach(el=>el.remove());
+      return;
+    }
+
+    gbV330ApplyCss();
+    gbV330EnsureMonthFilter();
+
+    const selected = gbV330GetSelectedMonth();
+    const orders = gbV330FilteredOrders();
+    const rows = gbV330BuildCostRows(orders);
+
+    const productTotal = orders.reduce((sum,order)=>sum+gbV330ProductSubtotalTwd(order),0);
+    const freightTotal = orders.reduce((sum,order)=>sum+gbV330FreightTwd(order),0);
+    const totalCost = orders.reduce((sum,order)=>sum+gbV330TotalCostTwd(order),0);
+
+    let report = document.getElementById("gbV330CostReport");
+    if(!report){
+      report = document.createElement("div");
+      report.id = "gbV330CostReport";
+      report.className = "gb-cost-report-v330";
+
+      const filter = document.getElementById("gbCostMonthFilter");
+      (filter || document.getElementById("admin")).insertAdjacentElement("afterend", report);
+    }
+
+    const title = selected === "all" ? "全部月份" : selected;
+
+    report.innerHTML = `
+      <div class="gb-cost-summary-v330">
+        <div class="gb-cost-pill-v330"><span>${gbV330Escape(title)} 商品小計</span><strong>${gbV330Money(productTotal)}</strong></div>
+        <div class="gb-cost-pill-v330"><span>${gbV330Escape(title)} 運費</span><strong>${gbV330Money(freightTotal)}</strong></div>
+        <div class="gb-cost-pill-v330 main"><span>${gbV330Escape(title)} 叫貨總成本</span><strong>${gbV330Money(totalCost)}</strong></div>
+      </div>
+
+      <div class="gb-cost-table-wrap-v330">
+        <table class="gb-cost-table-v330">
+          <thead>
+            <tr>
+              <th>品項</th>
+              <th>分類</th>
+              <th>數量</th>
+              <th>商品小計</th>
+              <th>運費</th>
+              <th>總成本</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.length ? rows.map(row=>`
+              <tr>
+                <td>${gbV330Escape(row.itemName)}</td>
+                <td>${gbV330Escape(row.category || "-")}</td>
+                <td>${row.totalQty}</td>
+                <td>${gbV330Money(row.productTotal)}</td>
+                <td>${gbV330Money(row.freightTotal)}</td>
+                <td><strong>${gbV330Money(row.totalCost)}</strong></td>
+              </tr>
+            `).join("") : `<tr><td colspan="6">此月份沒有叫貨紀錄</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    // 移除舊版錯放的摘要，避免重複與跑到錯頁
+    document.querySelectorAll("#gbV327CostSummary,.gb-cost-summary-v327").forEach(el=>el.remove());
+  }
+
+  function gbV330IsAdminCostPage(){
+    const isAdminTab = typeof currentTab !== "undefined" ? currentTab === "admin" : document.querySelector('.tab.active')?.dataset?.tab === "admin";
+    if(!isAdminTab) return false;
+    const activeSub = document.querySelector(".admin-sub-tab.active")?.dataset?.adminTab || localStorage.getItem("gbAdminSubTab") || "";
+    return activeSub === "costs" || activeSub === "cost" || activeSub.includes("cost");
+  }
+
+  function gbV329CanSeeCostSafe(){
+    const role = String(window.GB_AUTH?.role || document.getElementById("roleSelect")?.value || "staff").toLowerCase();
+    return ["boss","emily","qing"].includes(role);
+  }
+
+  function gbV330FixOrderHistoryColumns(){
+    // 修正叫貨紀錄表格欄位錯位：不在「來源」位置插入成本
+    const tables = [...document.querySelectorAll("table")];
+    tables.forEach(table=>{
+      const headText = table.querySelector("thead")?.textContent || "";
+      if(!(headText.includes("日期") && headText.includes("品項") && headText.includes("來源") && headText.includes("叫貨人"))) return;
+
+      const tbody = table.querySelector("tbody");
+      if(!tbody) return;
+
+      // 僅處理後台叫貨紀錄表，不處理在途表
+      const parentText = table.closest(".card,.panel,section,div")?.textContent || "";
+      if(!parentText.includes("叫貨紀錄")) return;
+
+      const orders = (data.orders || []).slice().sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
+      tbody.innerHTML = orders.map(order=>{
+        const item = gbV330Item(order);
+        const status = order.status || (gbV330Num(order.received) > 0 ? "部分到貨" : "在途");
+        return `
+          <tr class="${order.id === window.lastCreatedOrderId ? "highlight-row" : ""}">
+            <td>${gbV330Escape(order.date || "")}</td>
+            <td>${gbV330Escape(item?.name || order.deletedItemName || order.itemName || "已刪除品項")}</td>
+            <td>${gbV330Qty(order)}</td>
+            <td>${gbV330Num(order.received)}</td>
+            <td>${gbV330Escape(order.source || "手動新增")}</td>
+            <td>${gbV330Escape(order.person || "-")}</td>
+            <td><span class="badge ${status === "部分到貨" ? "warn" : status === "已到貨" ? "ok" : "info"}">${gbV330Escape(status)}</span></td>
+            <td>
+              <button class="small" type="button" data-action="edit-order" data-id="${order.id}">修改</button>
+              <button class="small danger" type="button" data-action="delete-order" data-id="${order.id}">刪除</button>
+            </td>
+          </tr>
+        `;
+      }).join("") || `<tr><td colspan="8">目前沒有叫貨紀錄</td></tr>`;
+
+      tbody.querySelectorAll('[data-action="edit-order"]').forEach(btn=>{
+        btn.onclick = () => {
+          if(typeof editOrder === "function") editOrder(btn.dataset.id);
+          else if(typeof openEditOrderModal === "function") openEditOrderModal(btn.dataset.id);
+        };
+      });
+
+      tbody.querySelectorAll('[data-action="delete-order"]').forEach(btn=>{
+        btn.onclick = () => {
+          if(typeof deleteOrder === "function") deleteOrder(btn.dataset.id);
+        };
+      });
+    });
+  }
+
+  function gbV330PatchExcelMonth(){
+    if(typeof buildExcelRows !== "function" || window.__gbV330ExcelPatched) return;
+
+    const oldBuildExcelRowsV330 = buildExcelRows;
+    buildExcelRows = function(){
+      const sheets = oldBuildExcelRowsV330();
+      const orders = gbV330FilteredOrders();
+      const costRows = gbV330BuildCostRows(orders).map(row=>({
+        "品項ID": row.itemId,
+        "品項名稱": row.itemName,
+        "分類": row.category || "",
+        "叫貨月份": gbV330GetSelectedMonth() === "all" ? "全部月份" : gbV330GetSelectedMonth(),
+        "累計數量": row.totalQty,
+        "商品小計": Math.round(row.productTotal),
+        "運費": Math.round(row.freightTotal),
+        "叫貨總成本": Math.round(row.totalCost)
+      }));
+
+      sheets["成本"] = costRows;
+      sheets["成本報表"] = costRows;
+      return sheets;
+    };
+    window.buildExcelRows = buildExcelRows;
+    window.__gbV330ExcelPatched = true;
+  }
+
+  function gbV330ApplyCss(){
+    if(document.getElementById("gbV330CostMonthCss")) return;
+    const style = document.createElement("style");
+    style.id = "gbV330CostMonthCss";
+    style.textContent = `
+      .gb-cost-month-filter{
+        display:grid;
+        grid-template-columns:160px minmax(220px,360px);
+        gap:12px;
+        align-items:center;
+        margin:14px 0 16px;
+        padding:14px 16px;
+        border:1px solid var(--line);
+        border-radius:18px;
+        background:#fff;
+      }
+      .gb-cost-month-filter label{
+        color:var(--muted);
+        font-weight:900;
+      }
+      .gb-cost-month-filter select{
+        width:100%;
+        min-width:0;
+      }
+      .gb-cost-summary-v330{
+        display:grid;
+        grid-template-columns:repeat(3,1fr);
+        gap:12px;
+        margin:14px 0 18px;
+      }
+      .gb-cost-pill-v330{
+        border:1px solid var(--line);
+        border-radius:18px;
+        padding:14px 16px;
+        background:#fff;
+      }
+      .gb-cost-pill-v330 span{
+        display:block;
+        color:var(--muted);
+        font-weight:800;
+        font-size:13px;
+        margin-bottom:6px;
+      }
+      .gb-cost-pill-v330 strong{
+        display:block;
+        color:var(--text);
+        font-weight:900;
+        font-size:22px;
+      }
+      .gb-cost-pill-v330.main{
+        background:#f1f8f6;
+        border-color:#cfe4de;
+      }
+      .gb-cost-table-wrap-v330{
+        overflow-x:auto;
+        border:1px solid var(--line);
+        border-radius:18px;
+        background:#fff;
+      }
+      .gb-cost-table-v330{
+        width:100%;
+        min-width:760px;
+        border-collapse:collapse;
+      }
+      .gb-cost-table-v330 th,
+      .gb-cost-table-v330 td{
+        padding:12px 14px;
+        border-bottom:1px solid var(--line);
+        text-align:left;
+      }
+      .gb-cost-table-v330 th{
+        background:#eef5f4;
+        color:var(--text);
+        font-weight:900;
+      }
+      @media(max-width:760px){
+        .gb-cost-month-filter{
+          grid-template-columns:1fr;
+          gap:8px;
+          padding:12px 14px;
+        }
+        .gb-cost-summary-v330{
+          grid-template-columns:1fr;
+          gap:8px;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function gbV330CleanupOutsideCost(){
+    if(!gbV330IsAdminCostPage() || !gbV329CanSeeCostSafe()){
+      document.querySelectorAll("#gbCostMonthFilter,#gbV330CostReport,#gbV327CostSummary,.gb-cost-summary-v327").forEach(el=>el.remove());
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded",()=>{
+    gbV330PatchExcelMonth();
+    setTimeout(()=>{
+      gbV330ApplyCss();
+      gbV330RenderCostReport();
+      gbV330FixOrderHistoryColumns();
+      gbV330CleanupOutsideCost();
+    },600);
+  });
+
+  const oldRenderAllV330 = renderAll;
+  renderAll = function(){
+    oldRenderAllV330();
+    gbV330PatchExcelMonth();
+    gbV330ApplyCss();
+    gbV330RenderCostReport();
+    gbV330FixOrderHistoryColumns();
+    gbV330CleanupOutsideCost();
+  };
+
+  window.gbMonthlyCostCheck = function(){
+    const orders = gbV330FilteredOrders();
+    return {
+      version: window.GB_VERSION,
+      selectedMonth: gbV330GetSelectedMonth(),
+      months: gbV330Months(),
+      orderCount: orders.length,
+      productTotal: Math.round(orders.reduce((s,o)=>s+gbV330ProductSubtotalTwd(o),0)),
+      freightTotal: Math.round(orders.reduce((s,o)=>s+gbV330FreightTwd(o),0)),
+      totalCost: Math.round(orders.reduce((s,o)=>s+gbV330TotalCostTwd(o),0)),
+      costReportVisible: !!document.getElementById("gbV330CostReport"),
+      sourceColumnFixed: true
+    };
+  };
+})();
+
+/* GoldenBird Inventory v3.3.1｜叫貨紀錄來源欄成本明細顯示 */
+(function(){
+  window.GB_VERSION = "goldenbird-inventory-v3.3.1-order-history-cost-detail";
+
+  function gbV331Num(value){
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function gbV331Escape(value){
+    if(typeof escapeHtml === "function") return escapeHtml(value);
+    return String(value ?? "")
+      .replaceAll("&","&amp;")
+      .replaceAll("<","&lt;")
+      .replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;")
+      .replaceAll("'","&#039;");
+  }
+
+  function gbV331Money(value){
+    return `NT$ ${Math.round(gbV331Num(value)).toLocaleString("zh-TW")}`;
+  }
+
+  function gbV331Role(){
+    return String(window.GB_AUTH?.role || document.getElementById("roleSelect")?.value || "staff").toLowerCase();
+  }
+
+  function gbV331CanSeeCost(){
+    return ["boss","emily","qing"].includes(gbV331Role());
+  }
+
+  function gbV331Item(order){
+    if(typeof getItem === "function") return getItem(order.itemId);
+    return (data.items || []).find(item => item.id === order.itemId) || null;
+  }
+
+  function gbV331Qty(order){
+    return gbV331Num(order.qty);
+  }
+
+  function gbV331ProductCost(order){
+    if(order.productCost !== undefined) return gbV331Num(order.productCost);
+    if(order.costMode === "unit_price_times_qty_plus_freight"){
+      const unit = gbV331Num(order.unitCostOriginal ?? order.originalCost ?? order.productUnitCost ?? 0);
+      const rate = gbV331Num(order.fxRate) || 1;
+      return Math.round(unit * gbV331Qty(order) * rate);
+    }
+    return 0;
+  }
+
+  function gbV331Freight(order){
+    if(order.freight !== undefined) return gbV331Num(order.freight);
+    const rate = gbV331Num(order.fxRate) || 1;
+    return Math.round(gbV331Num(order.originalFreight) * rate);
+  }
+
+  function gbV331TotalCost(order){
+    if(order.cost !== undefined) return gbV331Num(order.cost);
+    return gbV331ProductCost(order) + gbV331Freight(order);
+  }
+
+  function gbV331CostDetailHtml(order){
+    if(!gbV331CanSeeCost()) return "";
+
+    const product = gbV331ProductCost(order);
+    const freight = gbV331Freight(order);
+    const total = gbV331TotalCost(order);
+    const currency = order.currency || "TWD";
+    const unitOriginal = gbV331Num(order.unitCostOriginal ?? order.originalCost ?? order.productUnitCost ?? 0);
+    const freightOriginal = gbV331Num(order.originalFreight ?? order.freight ?? 0);
+    const rate = gbV331Num(order.fxRate) || 1;
+
+    let originalLine = "";
+    if(currency === "CNY"){
+      originalLine = `<div class="gb-order-cost-line">原幣 CNY ${unitOriginal} × ${gbV331Qty(order)} + 運 ${freightOriginal}｜匯率 ${rate.toFixed(3)}</div>`;
+    }
+
+    return `
+      <div class="gb-order-cost-detail">
+        <div class="gb-order-cost-total">${gbV331Money(total)}</div>
+        <div class="gb-order-cost-line">商品 ${Math.round(product).toLocaleString("zh-TW")}｜運費 ${Math.round(freight).toLocaleString("zh-TW")}</div>
+        ${originalLine}
+      </div>
+    `;
+  }
+
+  function gbV331SourceCell(order){
+    const source = order.source || "手動新增";
+    return `
+      <div class="gb-order-source-main">${gbV331Escape(source)}</div>
+      ${gbV331CostDetailHtml(order)}
+    `;
+  }
+
+  function gbV331RenderOrderHistoryWithCostDetail(){
+    const tables = [...document.querySelectorAll("table")];
+
+    tables.forEach(table=>{
+      const headText = table.querySelector("thead")?.textContent || "";
+      if(!(headText.includes("日期") && headText.includes("品項") && headText.includes("來源") && headText.includes("叫貨人"))) return;
+
+      const parentText = table.closest(".card,.panel,section,div")?.textContent || "";
+      if(!parentText.includes("叫貨紀錄")) return;
+
+      const tbody = table.querySelector("tbody");
+      if(!tbody) return;
+
+      const orders = (data.orders || []).slice().sort((a,b)=>{
+        const dateCompare = String(b.date || "").localeCompare(String(a.date || ""));
+        if(dateCompare !== 0) return dateCompare;
+        return String(b.id || "").localeCompare(String(a.id || ""));
+      });
+
+      tbody.innerHTML = orders.map(order=>{
+        const item = gbV331Item(order);
+        const status = order.status || (gbV331Num(order.received) >= gbV331Qty(order) ? "已到貨" : gbV331Num(order.received) > 0 ? "部分到貨" : "在途");
+        const badgeClass = status === "已到貨" ? "ok" : status === "部分到貨" ? "warn" : "info";
+
+        return `
+          <tr class="${order.id === window.lastCreatedOrderId ? "highlight-row" : ""}">
+            <td>${gbV331Escape(order.date || "")}</td>
+            <td>${gbV331Escape(item?.name || order.deletedItemName || order.itemName || "已刪除品項")}</td>
+            <td>${gbV331Qty(order)}</td>
+            <td>${gbV331Num(order.received)}</td>
+            <td>${gbV331SourceCell(order)}</td>
+            <td>${gbV331Escape(order.person || "-")}</td>
+            <td><span class="badge ${badgeClass}">${gbV331Escape(status)}</span></td>
+            <td>
+              <button class="small" type="button" data-action="edit-order" data-id="${order.id}">修改</button>
+              <button class="small danger" type="button" data-action="delete-order" data-id="${order.id}">刪除</button>
+            </td>
+          </tr>
+        `;
+      }).join("") || `<tr><td colspan="8">目前沒有叫貨紀錄</td></tr>`;
+
+      tbody.querySelectorAll('[data-action="edit-order"]').forEach(btn=>{
+        btn.onclick = () => {
+          if(typeof editOrder === "function") editOrder(btn.dataset.id);
+          else if(typeof openEditOrderModal === "function") openEditOrderModal(btn.dataset.id);
+        };
+      });
+
+      tbody.querySelectorAll('[data-action="delete-order"]').forEach(btn=>{
+        btn.onclick = () => {
+          if(typeof deleteOrder === "function") deleteOrder(btn.dataset.id);
+        };
+      });
+    });
+  }
+
+  function gbV331ApplyCss(){
+    if(document.getElementById("gbV331OrderHistoryCostCss")) return;
+
+    const style = document.createElement("style");
+    style.id = "gbV331OrderHistoryCostCss";
+    style.textContent = `
+      .gb-order-source-main{
+        font-weight:900;
+        color:var(--text);
+        margin-bottom:4px;
+      }
+
+      .gb-order-cost-detail{
+        margin-top:4px;
+        line-height:1.45;
+        color:var(--muted);
+        font-size:13px;
+        font-weight:800;
+      }
+
+      .gb-order-cost-total{
+        color:var(--text);
+        font-size:16px;
+        font-weight:900;
+      }
+
+      .gb-order-cost-line{
+        color:var(--muted);
+        white-space:nowrap;
+      }
+
+      body:not(.gb-can-see-cost) .gb-order-cost-detail{
+        display:none !important;
+      }
+
+      @media(max-width:760px){
+        .gb-order-cost-line{
+          white-space:normal;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function gbV331ApplyRoleClass(){
+    document.body.classList.toggle("gb-can-see-cost", gbV331CanSeeCost());
+  }
+
+  function gbV331Run(){
+    gbV331ApplyCss();
+    gbV331ApplyRoleClass();
+    gbV331RenderOrderHistoryWithCostDetail();
+  }
+
+  document.addEventListener("DOMContentLoaded",()=>{
+    setTimeout(gbV331Run,300);
+    setTimeout(gbV331Run,1000);
+  });
+
+  window.addEventListener("gb-role-ready",()=>{
+    setTimeout(gbV331Run,300);
+  });
+
+  const oldRenderAllV331 = renderAll;
+  renderAll = function(){
+    oldRenderAllV331();
+    gbV331Run();
+  };
+
+  window.gbOrderHistoryCostDetailCheck = function(){
+    return {
+      version: window.GB_VERSION,
+      role: gbV331Role(),
+      canSeeCost: gbV331CanSeeCost(),
+      costDetailCount: document.querySelectorAll(".gb-order-cost-detail").length,
+      sourceCells: document.querySelectorAll(".gb-order-source-main").length,
+      syncText: document.getElementById("syncStatusText")?.textContent
+    };
+  };
+})();
