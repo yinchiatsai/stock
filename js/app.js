@@ -7182,3 +7182,223 @@ window.GB_VERSION = "goldenbird-inventory-v3.0.1-firebase-duplicate-fix";
     };
   };
 })();
+
+/* GoldenBird Inventory v3.1.0｜手機版在途商品 UI 優化 */
+(function(){
+  function applyV310IncomingMobileUi(){
+    if(document.getElementById("gbV310IncomingMobileCss")) return;
+
+    const style = document.createElement("style");
+    style.id = "gbV310IncomingMobileCss";
+    style.textContent = `
+      @media(max-width:760px){
+        #incoming .table-scroll{
+          overflow-x:visible !important;
+          width:100% !important;
+          max-width:100% !important;
+        }
+
+        #incoming table{
+          width:100% !important;
+          min-width:0 !important;
+          border-collapse:separate !important;
+          border-spacing:0 10px !important;
+        }
+
+        #incoming table thead{
+          display:none !important;
+        }
+
+        #incomingTable{
+          width:100% !important;
+          max-width:100% !important;
+        }
+
+        #incomingTable tr{
+          display:grid !important;
+          grid-template-columns:1fr auto !important;
+          grid-template-areas:
+            "title status"
+            "stats stats"
+            "person person"
+            "action action" !important;
+          gap:8px 10px !important;
+          width:100% !important;
+          max-width:100% !important;
+          box-sizing:border-box !important;
+          padding:12px 12px !important;
+          margin:0 0 10px !important;
+          border:1px solid var(--line) !important;
+          border-radius:18px !important;
+          background:#fff !important;
+          box-shadow:0 3px 10px rgba(0,0,0,.035) !important;
+        }
+
+        #incomingTable td{
+          display:block !important;
+          border:0 !important;
+          padding:0 !important;
+          margin:0 !important;
+          min-width:0 !important;
+          max-width:100% !important;
+          white-space:normal !important;
+          box-sizing:border-box !important;
+        }
+
+        #incomingTable td::before{
+          content:none !important;
+        }
+
+        /* 日期先隱藏，避免卡片過高；仍保留資料，不影響桌機 */
+        #incomingTable td:nth-child(1){
+          display:none !important;
+        }
+
+        /* 品項 */
+        #incomingTable td:nth-child(2){
+          grid-area:title !important;
+          font-size:17px !important;
+          font-weight:900 !important;
+          line-height:1.35 !important;
+          color:var(--text) !important;
+          overflow:hidden !important;
+          display:-webkit-box !important;
+          -webkit-line-clamp:2 !important;
+          -webkit-box-orient:vertical !important;
+        }
+
+        /* 狀態 */
+        #incomingTable td:nth-child(7){
+          grid-area:status !important;
+          justify-self:end !important;
+          align-self:start !important;
+        }
+
+        #incomingTable td:nth-child(7) .badge{
+          padding:6px 10px !important;
+          border-radius:999px !important;
+          font-size:13px !important;
+          font-weight:900 !important;
+          white-space:nowrap !important;
+        }
+
+        /* 數據列：叫貨 / 已到 / 剩餘 */
+        #incomingTable td:nth-child(3),
+        #incomingTable td:nth-child(4),
+        #incomingTable td:nth-child(5){
+          grid-area:stats !important;
+          display:inline-flex !important;
+          flex-direction:column !important;
+          align-items:flex-start !important;
+          justify-content:center !important;
+          width:32% !important;
+          color:var(--text) !important;
+          font-size:18px !important;
+          font-weight:900 !important;
+          line-height:1.2 !important;
+          padding-top:2px !important;
+        }
+
+        #incomingTable td:nth-child(3)::before,
+        #incomingTable td:nth-child(4)::before,
+        #incomingTable td:nth-child(5)::before{
+          display:block !important;
+          color:var(--muted) !important;
+          font-size:12px !important;
+          font-weight:800 !important;
+          margin-bottom:3px !important;
+        }
+
+        #incomingTable td:nth-child(3)::before{ content:"叫貨" !important; }
+        #incomingTable td:nth-child(4)::before{ content:"已到" !important; }
+        #incomingTable td:nth-child(5)::before{ content:"剩餘" !important; }
+
+        #incomingTable td:nth-child(3){
+          justify-self:start !important;
+        }
+
+        #incomingTable td:nth-child(4){
+          justify-self:center !important;
+          margin-left:34% !important;
+        }
+
+        #incomingTable td:nth-child(5){
+          justify-self:end !important;
+          margin-left:68% !important;
+        }
+
+        /* 叫貨人 */
+        #incomingTable td:nth-child(6){
+          grid-area:person !important;
+          color:var(--muted) !important;
+          font-size:13px !important;
+          font-weight:800 !important;
+          padding-top:2px !important;
+        }
+
+        #incomingTable td:nth-child(6)::before{
+          content:"叫貨人：" !important;
+          color:var(--muted) !important;
+          font-weight:800 !important;
+        }
+
+        /* 操作列 */
+        #incomingTable td:nth-child(8),
+        #incomingTable td:nth-child(9){
+          grid-area:action !important;
+          margin-top:4px !important;
+        }
+
+        #incomingTable td:nth-child(8){
+          width:42% !important;
+          justify-self:start !important;
+        }
+
+        #incomingTable td:nth-child(9){
+          width:55% !important;
+          justify-self:end !important;
+          margin-left:auto !important;
+        }
+
+        #incomingTable .receive-input{
+          width:100% !important;
+          height:44px !important;
+          min-width:0 !important;
+          border-radius:15px !important;
+          font-size:15px !important;
+          padding:0 12px !important;
+          text-align:center !important;
+        }
+
+        #incomingTable .receive-btn{
+          width:100% !important;
+          height:44px !important;
+          min-width:0 !important;
+          border-radius:15px !important;
+          font-size:15px !important;
+          font-weight:900 !important;
+          white-space:nowrap !important;
+          padding:0 10px !important;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  document.addEventListener("DOMContentLoaded", applyV310IncomingMobileUi);
+
+  const oldRenderAllV310 = renderAll;
+  renderAll = function(){
+    oldRenderAllV310();
+    applyV310IncomingMobileUi();
+  };
+
+  window.gbIncomingMobileUiCheck = function(){
+    return {
+      version: window.GB_VERSION,
+      hasV310Css: !!document.getElementById("gbV310IncomingMobileCss"),
+      mobile: window.innerWidth <= 760,
+      incomingRows: document.querySelectorAll("#incomingTable tr").length
+    };
+  };
+})();
