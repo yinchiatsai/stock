@@ -10898,3 +10898,76 @@ window.GB_VERSION = "goldenbird-inventory-v3.0.1-firebase-duplicate-fix";
     };
   };
 })();
+
+/* GoldenBird Inventory v3.3.4｜庫存總覽最新更新品項置頂 */
+(function(){
+  window.GB_VERSION = "goldenbird-inventory-v3.3.4-inventory-newest-first";
+
+  function gbV334TimeValue(item){
+    const candidates = [
+      item.lastUpdatedAt,
+      item.updatedAt,
+      item.createdAt,
+      item.lastStockUpdatedAt,
+      item.lastChangedAt
+    ];
+
+    for(const value of candidates){
+      if(value === undefined || value === null || value === "") continue;
+      if(typeof value === "number") return value;
+      const parsed = Date.parse(value);
+      if(!Number.isNaN(parsed)) return parsed;
+    }
+
+    return 0;
+  }
+
+  function gbV334SortItemsNewestFirst(items){
+    return [...items].sort((a,b)=>{
+      const bt = gbV334TimeValue(b);
+      const at = gbV334TimeValue(a);
+      if(bt !== at) return bt - at;
+      return String(a.name || "").localeCompare(String(b.name || ""), "zh-Hant");
+    });
+  }
+
+  function gbV334PatchInventoryOrder(){
+    if(!Array.isArray(data?.items)) return;
+
+    // 只在庫存總覽預設排序時套用；若使用者點了庫存排序，就不干擾。
+    const sortMode = window.inventorySortMode || window.currentInventorySort || localStorage.getItem("gbInventorySortMode") || "";
+    const isStockSort = String(sortMode).includes("stock") || String(sortMode).includes("庫存");
+    if(isStockSort) return;
+
+    data.items = gbV334SortItemsNewestFirst(data.items);
+  }
+
+  const oldRenderAllV334 = renderAll;
+  renderAll = function(){
+    gbV334PatchInventoryOrder();
+    oldRenderAllV334();
+  };
+
+  document.addEventListener("DOMContentLoaded",()=>{
+    setTimeout(()=>{
+      gbV334PatchInventoryOrder();
+      if(typeof renderAll === "function") renderAll();
+    },500);
+  });
+
+  window.gbInventoryNewestFirstCheck = function(){
+    const firstItems = (data.items || []).slice(0,8).map(item=>({
+      name:item.name,
+      lastUpdatedAt:item.lastUpdatedAt || "",
+      updatedAt:item.updatedAt || "",
+      createdAt:item.createdAt || "",
+      sortTime:gbV334TimeValue(item)
+    }));
+
+    return {
+      version: window.GB_VERSION,
+      firstItems,
+      note:"庫存總覽預設依最近更新時間由新到舊；手動庫存排序不干擾。"
+    };
+  };
+})();
