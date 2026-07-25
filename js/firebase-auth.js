@@ -15,7 +15,7 @@ const USER_ROLES = {
   "goldenbirdhello@gmail.com": "staff",
   "kuangchieh.tai0505@gmail.com": "GJ",
   "unrealmonde@gmail.com": "emily",
-  "hey2501@gmail.com": "cing",
+  "goldenbird3265@gmail.com": "cing",
   "q82813292@gmail.com": "PX",
   "sun4041098@gmail.com": "boss",
   "adgjl29951@gmail.com":"CU"
