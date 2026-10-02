@@ -11442,3 +11442,15 @@ window.GB_VERSION = "goldenbird-inventory-v3.0.1-firebase-duplicate-fix";
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',bindV354); else bindV354();
 })();
 
+
+/* V3.3.10-safe｜僅修正負庫存狀態；以使用者提供的 V3.3.9 為母版 */
+getStatus = function(item){
+  const incoming = getIncomingQty(item.id);
+  const stock = Number(item.stock) || 0;
+  const safety = Number(item.safety) || 0;
+  // 實際庫存只要 <= 0，一律視為缺貨；即使已有在途也不以「已叫貨」取代缺貨狀態。
+  if(stock <= 0) return {text:"缺貨", type:"bad"};
+  if(stock < safety && incoming > 0) return {text:"已叫貨", type:"info"};
+  if(stock <= safety) return {text:"注意補貨", type:"warn"};
+  return {text:"正常", type:"good"};
+};
