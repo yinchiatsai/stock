@@ -336,6 +336,26 @@
     }
     const issues = [];
 
+    // V3.57：支援檔名第二段直接寫 xN / xN個 / xN件。
+    // 例如：USB普(黑)_x6個_15_客人.ai → 6 件。
+    // 僅接受「整段就是數量」的情況，避免把客戶編號或其他數字誤判為數量。
+    if (rawParts.length >= 2) {
+      const directQty = rawParts[1].match(/^[xX×]\s*(\d+)\s*(?:個|件)?$/);
+      if (directQty) {
+        const productText = rawParts[0].trim();
+        const productGroups = parseParenGroups(productText);
+        const colors = colorsFromLastMeaningfulGroup(productText, productGroups, productGroups.length - 1);
+        return {
+          product: cleanProduct(productText),
+          quantity: Number(directQty[1]),
+          unitHint: "件",
+          colors,
+          qtyMode: "segment-explicit-qty",
+          issues
+        };
+      }
+    }
+
     // V3.52：僅辨識明確寫在第二段的「單面xN / 雙面xN」為商品數量。
     // 例如：麻布袋(大)_雙面x2_客人 → 2 件。
     // 注意：此規則不處理「正/背/反」成組製作檔，因此既有正背合併仍維持 1 組 = 1 件。
@@ -1304,6 +1324,30 @@
     });
 
     folderGroups.forEach(group => {
+      // V3.57：若資料夾標示的總數量剛好等於其中來源檔數，
+      // 代表這批常見命名是「一個成品一個檔」（例如徽章原檔、_1、_2...）。
+      // 此時每個來源檔顯示／計入 1，而不是每列都顯示資料夾總數量。
+      // 總扣減量不變：6 個檔案仍然合計 6 件。
+      const folderTotal = Math.max(0, Number(group[0]?.quantity || 0));
+      const distributeOnePerFile = group.length > 1 && folderTotal === group.length;
+
+      if (distributeOnePerFile) {
+        group.forEach(record => {
+          record.fileCountInFolder = group.length;
+          record.quantity = 1;
+          record.countedQuantity = 1;
+          record.qtyMode = "folder-total-distributed-per-file";
+          record.stockDetails = [{
+            item: record.product || "未解析",
+            quantity: 1,
+            unit: record.unit || "件",
+            note: "資料夾總量依來源檔平均計入"
+          }];
+          record.mergedByFolder = false;
+        });
+        return;
+      }
+
       group.forEach((record, index) => {
         record.fileCountInFolder = group.length;
         if (index > 0) {
