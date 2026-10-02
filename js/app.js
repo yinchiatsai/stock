@@ -11442,3 +11442,16 @@ window.GB_VERSION = "goldenbird-inventory-v3.0.1-firebase-duplicate-fix";
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',bindV354); else bindV354();
 })();
 
+
+/* GoldenBird Inventory V3.60｜庫存狀態修正
+   規則：庫存 <= 0 一律顯示「缺貨」；正數且 <= 安全庫存才顯示補貨提醒。
+   此覆寫放在既有版本補丁之後，避免舊版 getStatus 再次蓋回。 */
+getStatus = function(item){
+  const incoming = getIncomingQty(item.id);
+  const stock = Number(item.stock) || 0;
+  const safety = Number(item.safety) || 0;
+  if(stock <= 0) return {text:"缺貨", type:"bad"};
+  if(stock <= safety && incoming > 0) return {text:"已叫貨", type:"info"};
+  if(stock <= safety) return {text:"注意補貨", type:"warn"};
+  return {text:"正常", type:"good"};
+};
