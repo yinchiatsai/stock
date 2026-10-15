@@ -1324,6 +1324,26 @@
     });
 
     folderGroups.forEach(group => {
+      // V3.3.13：徽章連號輸出檔（例如 _2ll-06.ai）是逐件檔案。
+      // 資料夾名稱即使含 x6，也不能把該總數套到每一張來源檔。
+      // 僅限徽章 + 末尾流水號，避免影響其他正背面／彩白合併規則。
+      const isSerialBadge = record => /徽章/.test(String(record.product || "")) &&
+        /(?:^|[_-])(?:[a-z0-9]+-)?\d{1,3}\.[^.]+$/i.test(String(record.filename || "")) &&
+        !/(?:^|[_（(])(?:x|X|×)\s*\d+\s*(?:個|件)?(?:[_）)]|$)/.test(String(record.filename || ""));
+      const serialBadges = group.filter(isSerialBadge);
+      if (serialBadges.length) {
+        serialBadges.forEach(record => {
+          record.fileCountInFolder = group.length;
+          record.quantity = 1;
+          record.countedQuantity = 1;
+          record.qtyMode = "serial-badge-per-file";
+          record.stockDetails = [{ item: record.product || "未解析", quantity: 1, unit: record.unit || "件", note: "徽章連號逐檔計入" }];
+          record.mergedByFolder = false;
+          record.folderPriority = false;
+        });
+        group = group.filter(record => !isSerialBadge(record));
+        if (!group.length) return;
+      }
       // V3.57：若資料夾標示的總數量剛好等於其中來源檔數，
       // 代表這批常見命名是「一個成品一個檔」（例如徽章原檔、_1、_2...）。
       // 此時每個來源檔顯示／計入 1，而不是每列都顯示資料夾總數量。
